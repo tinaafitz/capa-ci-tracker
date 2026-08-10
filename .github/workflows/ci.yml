@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend Lint & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  supabase:
+    name: Supabase Migrations & Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate migrations exist
+        run: |
+          count=$(ls -1 supabase/migrations/*.sql 2>/dev/null | wc -l)
+          echo "Found $count migration files"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No migration files found in supabase/migrations/"
+            exit 1
+          fi
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v1.x
+
+      - name: Type-check Edge Functions
+        run: |
+          for fn_dir in supabase/functions/*/; do
+            fn_name=$(basename "$fn_dir")
+            echo "Checking $fn_name..."
+            deno check "$fn_dir/index.ts"
+          done
