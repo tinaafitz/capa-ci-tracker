@@ -29,6 +29,7 @@ import {
 } from './TicketStatusBadge'
 import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { TaskChecklist } from './TaskChecklist'
+import { SopReferenceCards } from './SopReferenceCards'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { supabase } from '@/config/supabase'
 import { useAppActions } from '@/store/AppContext'
@@ -505,6 +506,9 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
                 </TabsList>
 
                 <TabsContent value="diagnosis" className="mt-4 space-y-4">
+                  {/* SOP references for matched diagnosis pattern */}
+                  <SopReferenceCards matchedPattern={ticket.matched_pattern} />
+
                   {/* Add note */}
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground">Add a note</Label>

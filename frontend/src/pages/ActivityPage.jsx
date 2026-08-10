@@ -9,6 +9,7 @@ import {
 import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline'
 import { useActivities } from '@/hooks/useActivities'
+import { useTriageSummary } from '@/hooks/useTriageSummary'
 
 const activityTypeOptions = [
   { value: 'all', label: 'All Events' },
@@ -39,6 +40,8 @@ export function ActivityPage() {
   useEffect(() => {
     localStorage.setItem('activity-filters', JSON.stringify(filters))
   }, [filters])
+
+  const triageSummary = useTriageSummary(filters.dateRange)
 
   const { data, loading, groupedByDay, count } = useActivities({
     type: filters.type,
@@ -99,6 +102,24 @@ export function ActivityPage() {
           />
         </div>
       </div>
+
+      {/* Triage summary banner */}
+      {!triageSummary.loading && (
+        <div className="mx-6 mt-3 flex items-center gap-6 px-4 py-3 bg-muted/30 rounded-lg border border-border shrink-0">
+          <div className="text-sm">
+            <span className="font-semibold text-red-600">{triageSummary.failedBuilds}</span>{' '}
+            failed build{triageSummary.failedBuilds !== 1 ? 's' : ''}
+          </div>
+          <div className="text-sm">
+            <span className="font-semibold text-foreground">{triageSummary.openTickets}</span>{' '}
+            open ticket{triageSummary.openTickets !== 1 ? 's' : ''}
+          </div>
+          <div className="text-sm">
+            <span className="font-semibold text-amber-600">{triageSummary.unassignedTickets}</span>{' '}
+            unassigned
+          </div>
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="flex-1 overflow-hidden">

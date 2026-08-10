@@ -5,10 +5,17 @@ import { CommandPalette } from '@/components/shared/CommandPalette'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { useAppActions } from '@/store/AppContext'
+import { useSidebarCounts } from '@/hooks/useSidebarCounts'
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const { setCommandPaletteOpen } = useAppActions()
+  const { setCommandPaletteOpen, setCounts } = useAppActions()
+
+  // Fetch sidebar badge counts and sync into global state
+  const sidebarCounts = useSidebarCounts()
+  useEffect(() => {
+    setCounts(sidebarCounts)
+  }, [sidebarCounts, setCounts])
 
   // Auto-collapse sidebar below 1440px
   useEffect(() => {

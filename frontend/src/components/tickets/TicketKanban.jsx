@@ -160,7 +160,7 @@ function KanbanColumn({ status, tickets, loading, onTicketClick }) {
   const count = tickets.length
 
   return (
-    <div className="flex flex-col min-w-[260px] w-[280px] shrink-0">
+    <div className="flex flex-col min-w-[200px] flex-1">
       {/* Column header */}
       <div className="flex items-center gap-2 px-3 py-2.5 mb-2">
         <span className={`h-2.5 w-2.5 rounded-full ${config.dotColor}`} />

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   useLegacyTable as useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
 } from '@tanstack/react-table/legacy'
 import { flexRender } from '@tanstack/react-table'
 import {
@@ -31,7 +32,7 @@ import {
 } from '@/components/ui/pagination'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TicketStatusBadge } from './TicketStatusBadge'
-import { SeverityBadge } from './SeverityBadge'
+import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 
 const statusOptions = [
@@ -66,6 +67,9 @@ export function TicketList({
   onTicketClick,
 }) {
   const [rowSelection, setRowSelection] = useState({})
+  const [sorting, setSorting] = useState([
+    { id: 'severity', desc: false },
+  ])
 
   const columns = useMemo(
     () => [
@@ -121,6 +125,9 @@ export function TicketList({
         accessorKey: 'severity',
         header: 'Severity',
         cell: ({ row }) => <SeverityBadge severity={row.getValue('severity')} />,
+        sortingFn: (rowA, rowB) => {
+          return SEVERITY_ORDER.indexOf(rowA.getValue('severity')) - SEVERITY_ORDER.indexOf(rowB.getValue('severity'))
+        },
         size: 140,
       },
       {
@@ -164,9 +171,12 @@ export function TicketList({
     data: tickets || [],
     columns,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
     state: {
       rowSelection,
+      sorting,
     },
     getRowId: (row) => row.id,
   })
@@ -221,20 +231,38 @@ export function TicketList({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    style={{ width: header.getSize() }}
-                    className="h-9 text-xs"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const canSort = header.column.getCanSort()
+                  const sorted = header.column.getIsSorted()
+                  return (
+                    <TableHead
+                      key={header.id}
+                      style={{ width: header.getSize() }}
+                      className={`h-9 text-xs group${canSort ? ' cursor-pointer select-none hover:bg-muted/50' : ''}`}
+                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                    >
+                      {header.isPlaceholder ? null : (
+                        <span className="inline-flex items-center gap-1">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {canSort && (
+                            <span className="text-muted-foreground">
+                              {sorted === 'asc' ? (
+                                <span className="text-foreground">{'▲'}</span>
+                              ) : sorted === 'desc' ? (
+                                <span className="text-foreground">{'▼'}</span>
+                              ) : (
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity">{'↕'}</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </TableHead>
+                  )
+                })}
               </TableRow>
             ))}
           </TableHeader>

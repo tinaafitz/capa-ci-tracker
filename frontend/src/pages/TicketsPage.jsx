@@ -56,12 +56,20 @@ export function TicketsPage() {
   const { selectTicket, closeTicketDetail } = useAppActions()
 
   const [viewMode, setViewMode] = useState('kanban') // 'kanban' | 'table'
-  const [filters, setFilters] = useState({
+  const [kanbanFilters, setKanbanFilters] = useState({
     status: 'all',
     severity: 'all',
     assignee: 'all',
     search: '',
   })
+  const [tableFilters, setTableFilters] = useState({
+    status: 'open',
+    severity: 'all',
+    assignee: 'all',
+    search: '',
+  })
+  const filters = viewMode === 'kanban' ? kanbanFilters : tableFilters
+  const setFilters = viewMode === 'kanban' ? setKanbanFilters : setTableFilters
   const [page, setPage] = useState(1)
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
@@ -79,8 +87,6 @@ export function TicketsPage() {
 
   const { data: tickets, loading, count, totalPages } = useTickets({
     ...filters,
-    // Kanban always shows all statuses; table uses whatever the filter is set to
-    status: isKanban ? 'all' : filters.status,
     page: isKanban ? 1 : page,
     pageSize: isKanban ? 500 : 20,
   })

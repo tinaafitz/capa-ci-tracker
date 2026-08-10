@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   useLegacyTable as useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
 } from '@tanstack/react-table/legacy'
 import { flexRender } from '@tanstack/react-table'
 import {
@@ -69,10 +70,26 @@ export function BuildHistoryTable({
         accessorKey: 'job_name',
         header: 'Job',
         cell: ({ row }) => (
-          <span className="text-sm truncate block max-w-xs">
+          <span className="text-sm break-all">
             {row.getValue('job_name')}
           </span>
         ),
+      },
+      {
+        id: 'repo',
+        header: 'Repo',
+        accessorFn: (row) => extractRepo(row.job_name, row.source, row.job_url),
+        cell: ({ getValue }) => {
+          const repo = getValue()
+          return repo ? (
+            <span className="text-xs text-muted-foreground font-mono">
+              {repo}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">--</span>
+          )
+        },
+        size: 180,
       },
       {
         accessorKey: 'source',
@@ -151,10 +168,19 @@ export function BuildHistoryTable({
     []
   )
 
+  const [sorting, setSorting] = useState([
+    { id: 'started_at', desc: true },
+  ])
+
   const table = useReactTable({
     data: builds || [],
     columns,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
     getRowId: (row) => row.id,
   })
 
@@ -202,20 +228,38 @@ export function BuildHistoryTable({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    style={{ width: header.getSize() }}
-                    className="h-9 text-xs"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
+                {headerGroup.headers.map((header) => {
+                  const canSort = header.column.getCanSort()
+                  const sorted = header.column.getIsSorted()
+                  return (
+                    <TableHead
+                      key={header.id}
+                      style={{ width: header.getSize() }}
+                      className={`h-9 text-xs group${canSort ? ' cursor-pointer select-none hover:bg-muted/50' : ''}`}
+                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                    >
+                      {header.isPlaceholder ? null : (
+                        <span className="inline-flex items-center gap-1">
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {canSort && (
+                            <span className="text-muted-foreground">
+                              {sorted === 'asc' ? (
+                                <span className="text-foreground">{'▲'}</span>
+                              ) : sorted === 'desc' ? (
+                                <span className="text-foreground">{'▼'}</span>
+                              ) : (
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity">{'↕'}</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </TableHead>
+                  )
+                })}
               </TableRow>
             ))}
           </TableHeader>
@@ -351,6 +395,28 @@ function formatDuration(ms) {
 
   if (hours > 0) return `${hours}h ${remainingMins}m`
   return `${minutes}m`
+}
+
+function extractRepo(jobName, source, jobUrl) {
+  if (source === 'prow' && jobName) {
+    const match = jobName.match(/^(?:periodic|pull|batch)-ci-(.+?)-(main|master|release-[\d.]+)/)
+    if (match) {
+      const parts = match[1].split('-')
+      const knownOrgs = ['openshift-online', 'stolostron', 'openshift']
+      for (const org of knownOrgs) {
+        const orgParts = org.split('-')
+        if (parts.slice(0, orgParts.length).join('-') === org) {
+          const repo = parts.slice(orgParts.length).join('-')
+          return `${org}/${repo}`
+        }
+      }
+      return `${parts[0]}/${parts.slice(1).join('-')}`
+    }
+  }
+  if (source === 'jenkins') {
+    return 'stolostron/rosa-hcp-e2e-test'
+  }
+  return null
 }
 
 function generatePageNumbers(current, total) {
