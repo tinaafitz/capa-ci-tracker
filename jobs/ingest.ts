@@ -20,7 +20,7 @@ const JENKINS_JOBS = (process.env.JENKINS_JOBS ?? 'capi_tests,capi_nightly,rosa_
 
 const PROW_API_URL = process.env.PROW_API_URL ?? 'https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*capa-e2e*';
 const PROW_JOB_PATTERNS = [
-  /capa-e2e/,
+  /periodic-ci-openshift-online-rosa-e2e-main_capa-e2e/,
 ];
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';

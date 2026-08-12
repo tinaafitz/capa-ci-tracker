@@ -17,7 +17,7 @@ const PROW_API_URL =
 
 // Only match CAPA e2e jobs
 const PROW_JOB_PATTERNS = [
-  /capa-e2e/,
+  /periodic-ci-openshift-online-rosa-e2e-main_capa-e2e/,
 ];
 
 interface ProwJob {
