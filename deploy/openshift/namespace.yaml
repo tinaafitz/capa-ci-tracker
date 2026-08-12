@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capa-ci-tracker
+  labels:
+    app.kubernetes.io/part-of: capa-ci-tracker
+  annotations:
+    openshift.io/description: "CAPA CI Tracker - CI build failure tracking for the CAPA/ROSA HCP team"
+    openshift.io/display-name: "CAPA CI Tracker"

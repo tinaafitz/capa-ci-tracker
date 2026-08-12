@@ -1,17 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/config/supabase'
 
 /**
  * Hook that fetches sidebar badge counts:
  * - openTickets: tickets with status in (new, investigating, root_caused, fix_in_progress)
  * - failedBuilds24h: builds with status = 'failure' started in the last 24 hours
+ * - activeTickets: tickets not in resolved/verified status
  *
- * Subscribes to realtime changes on support_tickets and builds tables
- * so counts stay current without polling.
+ * Polls every 30 seconds to keep counts fresh (replaces Supabase Realtime).
  */
 export function useSidebarCounts() {
   const [counts, setCounts] = useState({ openTickets: 0, failedBuilds24h: 0, activeTickets: 0 })
-  const channelRef = useRef(null)
 
   const fetchCounts = useCallback(async () => {
     const openStatuses = ['new', 'investigating', 'root_caused', 'fix_in_progress']
@@ -45,32 +44,10 @@ export function useSidebarCounts() {
     fetchCounts()
   }, [fetchCounts])
 
-  // Realtime subscriptions to keep counts fresh
+  // Poll every 30 seconds instead of Supabase Realtime
   useEffect(() => {
-    const channelName = `sidebar-counts-${Date.now()}`
-
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'support_tickets' },
-        () => fetchCounts()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'builds' },
-        () => fetchCounts()
-      )
-      .subscribe()
-
-    channelRef.current = channel
-
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current)
-        channelRef.current = null
-      }
-    }
+    const interval = setInterval(fetchCounts, 30000)
+    return () => clearInterval(interval)
   }, [fetchCounts])
 
   return counts
