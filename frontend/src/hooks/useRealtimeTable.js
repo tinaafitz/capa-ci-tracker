@@ -96,7 +96,7 @@ export function useRealtimeTable(table, options = {}) {
     if (!realtime) return
 
     const subscriptionTable = realtimeTable || table
-    const channelName = `${subscriptionTable}-changes-${Date.now()}`
+    const channelName = `${table}-${subscriptionTable}-changes-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     const channel = supabase
       .channel(channelName)

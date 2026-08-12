@@ -224,6 +224,7 @@ serve(async (req: Request) => {
       const updatePayload: Record<string, unknown> = {
         root_cause: diagnosisResult.root_cause,
         root_cause_category: diagnosisResult.root_cause_category,
+        diagnosed_at: new Date().toISOString(),
       };
 
       // Only adjust severity if the diagnosis suggests a different one

@@ -10,14 +10,14 @@ import { supabase } from '@/config/supabase'
  * so counts stay current without polling.
  */
 export function useSidebarCounts() {
-  const [counts, setCounts] = useState({ openTickets: 0, failedBuilds24h: 0 })
+  const [counts, setCounts] = useState({ openTickets: 0, failedBuilds24h: 0, activeTickets: 0 })
   const channelRef = useRef(null)
 
   const fetchCounts = useCallback(async () => {
     const openStatuses = ['new', 'investigating', 'root_caused', 'fix_in_progress']
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
-    const [ticketResult, buildResult] = await Promise.all([
+    const [ticketResult, buildResult, activeResult] = await Promise.all([
       supabase
         .from('v_ticket_summary')
         .select('id', { count: 'exact', head: true })
@@ -27,11 +27,16 @@ export function useSidebarCounts() {
         .select('id', { count: 'exact', head: true })
         .eq('status', 'failure')
         .gte('started_at', twentyFourHoursAgo),
+      supabase
+        .from('support_tickets')
+        .select('id', { count: 'exact', head: true })
+        .not('status', 'in', '("resolved","verified")'),
     ])
 
     setCounts({
       openTickets: ticketResult.count ?? 0,
       failedBuilds24h: buildResult.count ?? 0,
+      activeTickets: activeResult.count ?? 0,
     })
   }, [])
 

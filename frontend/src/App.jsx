@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { ActivityPage } from '@/pages/ActivityPage'
 import { TicketsPage } from '@/pages/TicketsPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
+import { PipelinePage } from '@/pages/PipelinePage'
 import { LoginPage } from '@/pages/LoginPage'
 import { useAuthContext } from '@/store/AppContext'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -36,6 +37,7 @@ function App() {
         <Route path="/tickets" element={<TicketsPage />} />
         <Route path="/tickets/:id" element={<TicketsPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
+        <Route path="/pipeline" element={<PipelinePage />} />
       </Route>
     </Routes>
   )

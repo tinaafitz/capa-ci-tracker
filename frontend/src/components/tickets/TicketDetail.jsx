@@ -27,6 +27,7 @@ import {
   getNextStatus,
   getAdvanceLabel,
 } from './TicketStatusBadge'
+import { TicketPipelineStepper } from './TicketPipelineStepper'
 import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { TaskChecklist } from './TaskChecklist'
 import { SopReferenceCards } from './SopReferenceCards'
@@ -139,15 +140,20 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
   const handleSaveRootCause = useCallback(async () => {
     if (!ticket) return
 
+    const updates = { root_cause: rootCause }
+    if (rootCause.trim() && !ticket.diagnosed_at) {
+      updates.diagnosed_at = new Date().toISOString()
+    }
+
     const { error } = await supabase
       .from('support_tickets')
-      .update({ root_cause: rootCause })
+      .update(updates)
       .eq('id', ticket.id)
 
     if (error) {
       toast.error('Failed to save root cause')
     } else {
-      updateTicket({ id: ticket.id, root_cause: rootCause })
+      updateTicket({ id: ticket.id, ...updates })
       setEditingRootCause(false)
       toast.success('Root cause saved')
     }
@@ -172,6 +178,13 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
       toast.error('Failed to link PR')
     } else {
       updateTicket({ id: ticket.id, ...updates })
+      await supabase.from('activities').insert({
+        activity_type: 'fix_submitted',
+        title: `Fix PR linked to CAPA-${ticket.ticket_number}`,
+        description: fixPrUrl.trim(),
+        ticket_id: ticket.id,
+        actor: 'user',
+      })
       if (updates.status) {
         toast.success('PR linked. Status auto-advanced to Fix In Progress.')
       } else {
@@ -277,51 +290,29 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
 
           <ScrollArea className="flex-1">
             <div className="px-6 py-4 space-y-6">
-              {/* Status Pipeline */}
+              {/* Lifecycle Pipeline */}
               <div className="space-y-3">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Status Pipeline
-                </Label>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {TICKET_STATUSES.map((s, i) => {
-                    const currentIdx = TICKET_STATUSES.indexOf(ticket.status)
-                    const isPast = i < currentIdx
-                    const isCurrent = i === currentIdx
-
-                    return (
-                      <div key={s} className="flex items-center">
-                        <div
-                          className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                            isCurrent
-                              ? 'bg-primary text-primary-foreground'
-                              : isPast
-                              ? 'bg-muted text-muted-foreground'
-                              : 'border border-dashed border-border text-muted-foreground/50'
-                          }`}
-                        >
-                          {s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                        </div>
-                        {i < TICKET_STATUSES.length - 1 && (
-                          <svg
-                            className={`h-4 w-4 mx-1 ${
-                              isPast ? 'text-muted-foreground' : 'text-border'
-                            }`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
-                        )}
-                      </div>
-                    )
-                  })}
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Lifecycle Pipeline
+                  </Label>
+                  <TicketStatusBadge status={ticket.status} />
                 </div>
+                <TicketPipelineStepper
+                  buildFailedAt={linkedBuild?.finished_at}
+                  ticketCreatedAt={ticket.created_at}
+                  diagnosedAt={ticket.diagnosed_at}
+                  prSubmittedAt={ticket.fix_pr_url ? ticket.updated_at : null}
+                  prMergedAt={ticket.pr_merged_at}
+                  verifiedAt={ticket.verified_at}
+                  buildJobUrl={linkedBuild?.job_url}
+                  buildExternalId={linkedBuild?.external_id}
+                  buildSource={linkedBuild?.source || 'jenkins'}
+                  fixPrUrl={ticket.fix_pr_url}
+                  fixPrNumber={ticket.fix_pr_number}
+                  verifyBuildJobUrl={ticket.verify_build?.job_url}
+                  verifyBuildExternalId={ticket.verify_build?.external_id}
+                />
                 {advanceLabel && (
                   <Button size="sm" onClick={handleAdvanceStatus}>
                     {advanceLabel}
