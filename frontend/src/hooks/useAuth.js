@@ -1,14 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { supabase } from '@/config/supabase'
-
 /**
- * Hook for managing Supabase Google OAuth authentication.
+ * Authentication hook for OpenShift deployment.
  *
- * - Checks for an existing session on mount
- * - Subscribes to auth state changes (login/logout/token refresh)
- * - Provides signIn (Google OAuth), signOut, user, session, loading
- * - Cleans up the auth listener on unmount
+ * On OCP, the oauth-proxy sidecar handles authentication before traffic
+ * reaches nginx. The app never sees unauthenticated requests.
+ *
+ * For local development without OCP, set VITE_DEV_BYPASS_AUTH=true in .env.
+ * Both paths return a static authenticated state since PostgREST does not
+ * require per-user auth tokens.
  */
+
 const DEV_BYPASS_AUTH = import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
 
 const DEV_USER = {
@@ -17,62 +17,23 @@ const DEV_USER = {
   user_metadata: { full_name: 'Dev User', avatar_url: null },
 }
 
+const OCP_USER = {
+  id: 'ocp-user',
+  email: 'authenticated-via-ocp',
+  user_metadata: { full_name: 'OCP User', avatar_url: null },
+}
+
 export function useAuth() {
-  const [session, setSession] = useState(DEV_BYPASS_AUTH ? {} : null)
-  const [user, setUser] = useState(DEV_BYPASS_AUTH ? DEV_USER : null)
-  const [loading, setLoading] = useState(!DEV_BYPASS_AUTH)
-  const mountedRef = useRef(true)
+  const user = DEV_BYPASS_AUTH ? DEV_USER : OCP_USER
 
-  useEffect(() => {
-    if (DEV_BYPASS_AUTH) return
-    mountedRef.current = true
-
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      if (!mountedRef.current) return
-      setSession(currentSession)
-      setUser(currentSession?.user ?? null)
-      setLoading(false)
-    })
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (!mountedRef.current) return
-      setSession(newSession)
-      setUser(newSession?.user ?? null)
-      setLoading(false)
-    })
-
-    return () => {
-      mountedRef.current = false
-      subscription.unsubscribe()
-    }
-  }, [])
-
-  const signIn = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        // Supabase handles the redirect URL via dashboard config.
-        // queryParams restricts the Google consent screen to Red Hat domain.
-        queryParams: {
-          hd: 'redhat.com',
-        },
-      },
-    })
-    if (error) {
-      console.error('Sign-in error:', error.message)
-    }
-    return { error }
-  }, [])
-
-  const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Sign-out error:', error.message)
-    }
-    return { error }
-  }, [])
-
-  return { user, session, loading, signIn, signOut }
+  return {
+    user,
+    session: {},
+    loading: false,
+    signIn: () => {},
+    signOut: () => {
+      // On OCP, sign out via the oauth-proxy sign_out endpoint
+      window.location.href = '/oauth/sign_out'
+    },
+  }
 }

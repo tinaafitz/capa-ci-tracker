@@ -74,45 +74,29 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
       .then(({ data }) => setActivities(data || []))
   }, [ticket?.id, ticket?.root_cause, ticket?.fix_pr_url])
 
-  // Realtime subscription scoped to this ticket
+  // Poll tasks and activities every 30 seconds (replaces Supabase Realtime)
   useEffect(() => {
     if (!ticket?.id) return
 
-    const channel = supabase
-      .channel(`ticket-detail-${ticket.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tasks',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        () => {
-          // Refetch tasks on any change
-          supabase
-            .from('tasks')
-            .select('*')
-            .eq('ticket_id', ticket.id)
-            .order('sort_order', { ascending: true })
-            .then(({ data }) => setTasks(data || []))
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'activities',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        (payload) => {
-          setActivities((prev) => [payload.new, ...prev])
-        }
-      )
-      .subscribe()
+    const pollData = () => {
+      supabase
+        .from('tasks')
+        .select('*')
+        .eq('ticket_id', ticket.id)
+        .order('sort_order', { ascending: true })
+        .then(({ data }) => setTasks(data || []))
 
-    return () => supabase.removeChannel(channel)
+      supabase
+        .from('activities')
+        .select('*')
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: false })
+        .limit(50)
+        .then(({ data }) => setActivities(data || []))
+    }
+
+    const interval = setInterval(pollData, 30000)
+    return () => clearInterval(interval)
   }, [ticket?.id])
 
   const handleAdvanceStatus = useCallback(async () => {
