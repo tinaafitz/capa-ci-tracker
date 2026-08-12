@@ -13,6 +13,8 @@ data:
   JENKINS_JOBS: "rosa-hcp-e2e,rosa-hcp-upgrade,capa-e2e,capa-conformance"
   # Comma-separated list of Prow job names to ingest
   PROW_JOBS: "periodic-ci-openshift-cluster-api-provider-aws-main-e2e,periodic-ci-openshift-cluster-api-provider-aws-main-unit"
+  # Comma-separated repos to check for upstream commits during failure streaks
+  WATCHED_REPOS: "stolostron/rosa-hcp-e2e-test,stolostron/cluster-api-installer"
   # Database connection details for CronJobs (host and port, credentials come from Secret)
   DB_HOST: "postgres"
   DB_PORT: "5432"
