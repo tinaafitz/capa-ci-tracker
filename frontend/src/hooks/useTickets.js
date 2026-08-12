@@ -83,7 +83,7 @@ export function useTicketDetail(ticketId) {
 
   const result = useRealtimeTable('support_tickets', {
     filters,
-    select: '*, builds:build_id(id, external_id, job_name, job_url, status, test_failures, pass_count, fail_count, skip_count, ocp_version, started_at)',
+    select: '*, builds:build_id(id, external_id, job_name, job_url, status, test_failures, pass_count, fail_count, skip_count, ocp_version, started_at, finished_at), verify_build:verified_in_build_id(id, external_id, job_name, job_url)',
     limit: 1,
     realtime: true,
     realtimeTable: 'support_tickets',

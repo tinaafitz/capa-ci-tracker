@@ -196,3 +196,11 @@ INSERT INTO sop_mappings (pattern_type, sop_url, sop_title, sop_section, summary
 
 UPDATE support_tickets SET matched_pattern = 'capi_not_installed' WHERE id = 'b0000001-0000-0000-0000-000000000001';
 UPDATE support_tickets SET matched_pattern = 'rosacontrolplane_stuck_deletion' WHERE id = 'b0000001-0000-0000-0000-000000000004';
+
+-- ============================================================
+-- Set diagnosed_at timestamps for tickets with root causes
+-- (matches diagnosis_completed activity timestamps)
+-- ============================================================
+
+UPDATE support_tickets SET diagnosed_at = '2026-08-09T09:01:00Z' WHERE id = 'b0000001-0000-0000-0000-000000000001';
+UPDATE support_tickets SET diagnosed_at = '2026-08-10T01:31:00Z' WHERE id = 'b0000001-0000-0000-0000-000000000004';

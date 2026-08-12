@@ -26,6 +26,7 @@ const initialState = {
   counts: {
     openTickets: 0,
     failedBuilds24h: 0,
+    activeTickets: 0,
   },
 }
 

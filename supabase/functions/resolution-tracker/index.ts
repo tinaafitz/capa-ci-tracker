@@ -129,7 +129,7 @@ serve(async (_req: Request) => {
           // PR is merged -- advance ticket to 'resolved'
           const { error: updateError } = await supabase
             .from("support_tickets")
-            .update({ status: "resolved" })
+            .update({ status: "resolved", pr_merged_at: pr.merged_at })
             .eq("id", ticket.id);
 
           if (updateError) {
