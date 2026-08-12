@@ -4,17 +4,16 @@ import { supabase } from '@/config/supabase'
 /**
  * Hook that fetches sidebar badge counts:
  * - openTickets: tickets with status in (new, investigating, root_caused, fix_in_progress)
- * - failedBuilds24h: builds with status = 'failure' started in the last 24 hours
+ * - failedBuilds: builds with status = 'failure'
  * - activeTickets: tickets not in resolved/verified status
  *
  * Polls every 30 seconds to keep counts fresh (replaces Supabase Realtime).
  */
 export function useSidebarCounts() {
-  const [counts, setCounts] = useState({ openTickets: 0, failedBuilds24h: 0, activeTickets: 0 })
+  const [counts, setCounts] = useState({ openTickets: 0, failedBuilds: 0, activeTickets: 0 })
 
   const fetchCounts = useCallback(async () => {
     const openStatuses = ['new', 'investigating', 'root_caused', 'fix_in_progress']
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
     const [ticketResult, buildResult, activeResult] = await Promise.all([
       supabase
@@ -24,8 +23,7 @@ export function useSidebarCounts() {
       supabase
         .from('builds')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'failure')
-        .gte('started_at', twentyFourHoursAgo),
+        .eq('status', 'failure'),
       supabase
         .from('support_tickets')
         .select('id', { count: 'exact', head: true })
@@ -34,7 +32,7 @@ export function useSidebarCounts() {
 
     setCounts({
       openTickets: ticketResult.count ?? 0,
-      failedBuilds24h: buildResult.count ?? 0,
+      failedBuilds: buildResult.count ?? 0,
       activeTickets: activeResult.count ?? 0,
     })
   }, [])

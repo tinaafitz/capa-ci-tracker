@@ -504,7 +504,7 @@ describe('AppContext reducer', () => {
       })
 
       expect(result.current.state.counts.openTickets).toBe(5)
-      expect(result.current.state.counts.failedBuilds24h).toBe(0) // unchanged
+      expect(result.current.state.counts.failedBuilds).toBe(0) // unchanged
     })
   })
 
