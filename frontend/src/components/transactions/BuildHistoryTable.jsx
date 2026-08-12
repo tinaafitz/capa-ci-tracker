@@ -65,17 +65,14 @@ export function BuildHistoryTable({
         header: 'Job',
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
-          const displayName = shortenProwJobName(fullName)
           return (
-            <span
-              className="text-sm max-w-[400px] truncate block"
-              title={fullName}
-            >
-              {displayName}
+            <span className="text-sm font-mono break-all whitespace-normal">
+              {fullName}
             </span>
           )
         },
-        size: 400,
+        size: 500,
+        meta: { cellClassName: 'whitespace-normal' },
       },
       {
         id: 'repo',
@@ -290,14 +287,17 @@ export function BuildHistoryTable({
                     }`}
                     onClick={() => onBuildClick(row.original)}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="py-2">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
+                      return (
+                        <TableCell key={cell.id} className={`py-2 ${cellClassName}`}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 )
               })
@@ -407,26 +407,6 @@ function extractRepo(jobName, source, jobUrl) {
   return null
 }
 
-/**
- * Strip common CI job name prefixes to surface the meaningful test suite suffix.
- * E.g. "periodic-ci-openshift-online-rosa-e2e-main-rosa-hcp-e2e-40-4.17-aws"
- *    → "rosa-hcp-e2e-40-4.17-aws"
- */
-function shortenProwJobName(jobName) {
-  if (!jobName) return ''
-  const prefixes = [
-    /^periodic-ci-openshift-online-rosa-e2e-main-/,
-    /^periodic-ci-openshift-online-rosa-e2e-release-[\d.]+-/,
-    /^periodic-ci-stolostron-[\w-]+-main-/,
-    /^pull-ci-openshift-online-rosa-e2e-main-/,
-  ]
-  for (const prefix of prefixes) {
-    if (prefix.test(jobName)) {
-      return jobName.replace(prefix, '')
-    }
-  }
-  return jobName
-}
 
 function generatePageNumbers(current, total) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
