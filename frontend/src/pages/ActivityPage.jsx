@@ -1,11 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterSelect } from '@/components/shared/FilterSelect'
 import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline'
 import { useActivities } from '@/hooks/useActivities'
@@ -80,21 +74,12 @@ export function ActivityPage() {
 
         {/* Filters */}
         <div className="flex items-center gap-3 flex-wrap">
-          <Select
+          <FilterSelect
             value={filters.type}
             onValueChange={(v) => handleFilterChange('type', v)}
-          >
-            <SelectTrigger className="w-44 h-8">
-              <SelectValue placeholder="All Events" />
-            </SelectTrigger>
-            <SelectContent>
-              {activityTypeOptions.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={activityTypeOptions}
+            className="w-44 h-8"
+          />
 
           <DateRangeFilter
             value={filters.dateRange}

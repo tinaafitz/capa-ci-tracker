@@ -265,16 +265,20 @@ function PhaseStep({ phase, buildLogs, isLast }) {
           </div>
         )}
 
-        {/* Ticket + PR links */}
-        <div className="flex items-center gap-3 mt-1.5">
-          {phase.ticket_id && (
+        {/* Ticket + PR links + action links */}
+        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+          {phase.ticket_id && phase.ticket_number ? (
             <span className="flex items-center gap-1">
               <span className="text-xs font-mono text-primary">
-                CAPA-{phase.ticket_number || '?'}
+                CAPA-{phase.ticket_number}
               </span>
               {phase.ticket_status && (
                 <TicketStatusBadge status={phase.ticket_status} />
               )}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground italic">
+              No linked ticket
             </span>
           )}
           {phase.fix_pr_url && (
@@ -285,6 +289,16 @@ function PhaseStep({ phase, buildLogs, isLast }) {
               className="text-xs text-primary hover:underline"
             >
               {extractPrLabel(phase.fix_pr_url)}
+            </a>
+          )}
+          {phase.latest_job_url && (
+            <a
+              href={phase.latest_job_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              View latest build
             </a>
           )}
         </div>
@@ -373,6 +387,19 @@ export function StreakDetail({ streakId }) {
               <span>Ended {formatDate(streak.ended_at)}</span>
             )}
           </div>
+        </div>
+        {/* Action links */}
+        <div className="flex items-center gap-2 shrink-0">
+          {streak.latest_job_url && (
+            <a
+              href={streak.latest_job_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              View latest build
+            </a>
+          )}
         </div>
       </div>
 

@@ -1,11 +1,133 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { ActivityCard } from './ActivityCard'
 
+const COLLAPSE_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
+const COLLAPSE_THRESHOLD = 3 // collapse when 3+ consecutive duplicates
+
+/**
+ * Group consecutive activities with the same activity_type + ticket_id
+ * that fall within a 5-minute window. Returns an array of items where
+ * each can be a single activity or a collapsed group.
+ */
+function collapseRepeats(items) {
+  if (!items || items.length === 0) return []
+
+  const result = []
+  let i = 0
+
+  while (i < items.length) {
+    const current = items[i]
+    const group = [current]
+
+    // Look ahead for consecutive matching activities
+    let j = i + 1
+    while (j < items.length) {
+      const next = items[j]
+      if (
+        next.activity_type === current.activity_type &&
+        next.ticket_id === current.ticket_id &&
+        current.ticket_id != null &&
+        Math.abs(
+          new Date(current.created_at).getTime() -
+            new Date(next.created_at).getTime()
+        ) < COLLAPSE_WINDOW_MS
+      ) {
+        group.push(next)
+        j++
+      } else {
+        break
+      }
+    }
+
+    if (group.length >= COLLAPSE_THRESHOLD) {
+      result.push({ _collapsed: true, items: group, representative: current })
+    } else {
+      group.forEach((item) => result.push(item))
+    }
+
+    i = j
+  }
+
+  return result
+}
+
+function CollapsedGroup({ group }) {
+  const [expanded, setExpanded] = useState(false)
+  const { representative, items } = group
+  const count = items.length
+
+  const ticketLabel =
+    representative.support_tickets
+      ? `CAPA-${representative.support_tickets.ticket_number}`
+      : representative.ticket_id
+      ? `ticket`
+      : ''
+
+  const typeLabels = {
+    build_completed: 'build events',
+    ticket_created: 'tickets created',
+    ticket_updated: 'ticket updates',
+    note_added: 'notes added',
+    diagnosis_completed: 'diagnoses',
+    fix_submitted: 'fixes submitted',
+    fix_merged: 'fixes merged',
+    notification_sent: 'notifications',
+  }
+
+  const typeLabel = typeLabels[representative.activity_type] || 'events'
+
+  return (
+    <div>
+      <button
+        className="flex items-center gap-2 w-full px-4 py-2.5 text-left hover:bg-muted/30 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <svg
+          className={`w-3 h-3 text-muted-foreground shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
+          <path d="M4 2l4 4-4 4" />
+        </svg>
+        <span className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{count}</span>{' '}
+          {typeLabel}
+          {ticketLabel && (
+            <>
+              {' '}for{' '}
+              <span className="font-mono text-primary">{ticketLabel}</span>
+            </>
+          )}
+        </span>
+      </button>
+      {expanded && (
+        <div className="divide-y divide-border/50 border-l-2 border-muted ml-4">
+          {items.map((activity) => (
+            <ActivityCard key={activity.id} activity={activity} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ActivityTimeline({ groupedByDay, newEventCount = 0, onJumpToTop }) {
   const scrollRef = useRef(null)
   const [isScrolledDown, setIsScrolledDown] = useState(false)
+
+  // Collapse repetitive events within each day group
+  const processedGroups = useMemo(() => {
+    if (!groupedByDay) return []
+    return groupedByDay.map((group) => ({
+      ...group,
+      items: collapseRepeats(group.items),
+    }))
+  }, [groupedByDay])
 
   const handleScroll = useCallback((e) => {
     const target = e?.target
@@ -73,7 +195,7 @@ export function ActivityTimeline({ groupedByDay, newEventCount = 0, onJumpToTop 
         onScrollCapture={handleScroll}
       >
         <div className="divide-y divide-border">
-          {groupedByDay.map((group) => (
+          {processedGroups.map((group) => (
             <div key={group.label}>
               {/* Day header */}
               <div className="sticky top-0 z-[5] bg-background/95 backdrop-blur-sm px-4 py-2 border-b border-border">
@@ -84,13 +206,20 @@ export function ActivityTimeline({ groupedByDay, newEventCount = 0, onJumpToTop 
 
               {/* Events for this day */}
               <div className="divide-y divide-border/50">
-                {group.items.map((activity, index) => (
-                  <ActivityCard
-                    key={activity.id}
-                    activity={activity}
-                    isNew={index === 0 && group.label === 'TODAY'}
-                  />
-                ))}
+                {group.items.map((item, index) =>
+                  item._collapsed ? (
+                    <CollapsedGroup
+                      key={`collapsed-${item.representative.id}`}
+                      group={item}
+                    />
+                  ) : (
+                    <ActivityCard
+                      key={item.id}
+                      activity={item}
+                      isNew={index === 0 && group.label === 'TODAY'}
+                    />
+                  )
+                )}
               </div>
             </div>
           ))}

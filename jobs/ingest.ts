@@ -757,9 +757,9 @@ async function fetchJenkinsApi(path: string): Promise<unknown> {
   return response.json();
 }
 
-async function fetchTestReport(buildNumber: number): Promise<JenkinsTestReport | null> {
+async function fetchTestReport(jobName: string, buildNumber: number): Promise<JenkinsTestReport | null> {
   try {
-    return await fetchJenkinsApi(`/${buildNumber}/testReport/api/json`) as JenkinsTestReport;
+    return await fetchJenkinsApi(`/job/${jobName}/${buildNumber}/testReport/api/json`) as JenkinsTestReport;
   } catch {
     return null;
   }
@@ -790,7 +790,7 @@ async function ingestJenkins(): Promise<{ ingested: number; skipped: number; err
     let builds: JenkinsBuild[];
     try {
       const data = await fetchJenkinsApi(
-        `/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
+        `/job/${jobName}/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
       ) as { builds: JenkinsBuild[] };
       builds = data.builds ?? [];
     } catch (err) {
@@ -806,7 +806,7 @@ async function ingestJenkins(): Promise<{ ingested: number; skipped: number; err
 
         let testReport: JenkinsTestReport | null = null;
         if (build.result) {
-          testReport = await fetchTestReport(build.number);
+          testReport = await fetchTestReport(jobName, build.number);
         }
 
         const testFailures = extractTestFailures(testReport);

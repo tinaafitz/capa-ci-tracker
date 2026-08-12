@@ -18,6 +18,7 @@ import { SeverityBadge } from '@/components/tickets/SeverityBadge'
 import { TicketPipelineStepper } from '@/components/tickets/TicketPipelineStepper'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { Badge } from '@/components/ui/badge'
+import { formatAssignee } from '@/lib/utils'
 
 const STAGE_NAMES = {
   1: 'Build Failed',
@@ -156,8 +157,11 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
             return <span className="text-sm text-muted-foreground/40 italic">unassigned</span>
           }
           return (
-            <span className="text-sm text-foreground/80 truncate block max-w-[7rem]">
-              {assignee}
+            <span
+              className="text-sm text-foreground/80 truncate block max-w-[7rem]"
+              title={assignee}
+            >
+              @{formatAssignee(assignee)}
             </span>
           )
         },

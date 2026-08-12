@@ -13,13 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterSelect } from '@/components/shared/FilterSelect'
 import {
   Pagination,
   PaginationContent,
@@ -69,11 +63,19 @@ export function BuildHistoryTable({
       {
         accessorKey: 'job_name',
         header: 'Job',
-        cell: ({ row }) => (
-          <span className="text-sm break-all">
-            {row.getValue('job_name')}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const fullName = row.getValue('job_name') || ''
+          const displayName = shortenProwJobName(fullName)
+          return (
+            <span
+              className="text-sm max-w-[400px] truncate block"
+              title={fullName}
+            >
+              {displayName}
+            </span>
+          )
+        },
+        size: 400,
       },
       {
         id: 'repo',
@@ -188,33 +190,19 @@ export function BuildHistoryTable({
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Select
+        <FilterSelect
           value={filters.job || 'all'}
           onValueChange={(v) => onFiltersChange({ ...filters, job: v })}
-        >
-          <SelectTrigger className="w-48 h-8">
-            <SelectValue placeholder="All Jobs" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Jobs</SelectItem>
-          </SelectContent>
-        </Select>
+          options={[{ value: 'all', label: 'All Jobs' }]}
+          className="w-48 h-8"
+        />
 
-        <Select
+        <FilterSelect
           value={filters.status || 'all'}
           onValueChange={(v) => onFiltersChange({ ...filters, status: v })}
-        >
-          <SelectTrigger className="w-36 h-8">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            {statusOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={statusOptions}
+          className="w-36 h-8"
+        />
 
         <DateRangeFilter
           value={filters.dateRange || '7d'}
@@ -417,6 +405,27 @@ function extractRepo(jobName, source, jobUrl) {
     return 'stolostron/rosa-hcp-e2e-test'
   }
   return null
+}
+
+/**
+ * Strip common CI job name prefixes to surface the meaningful test suite suffix.
+ * E.g. "periodic-ci-openshift-online-rosa-e2e-main-rosa-hcp-e2e-40-4.17-aws"
+ *    → "rosa-hcp-e2e-40-4.17-aws"
+ */
+function shortenProwJobName(jobName) {
+  if (!jobName) return ''
+  const prefixes = [
+    /^periodic-ci-openshift-online-rosa-e2e-main-/,
+    /^periodic-ci-openshift-online-rosa-e2e-release-[\d.]+-/,
+    /^periodic-ci-stolostron-[\w-]+-main-/,
+    /^pull-ci-openshift-online-rosa-e2e-main-/,
+  ]
+  for (const prefix of prefixes) {
+    if (prefix.test(jobName)) {
+      return jobName.replace(prefix, '')
+    }
+  }
+  return jobName
 }
 
 function generatePageNumbers(current, total) {
