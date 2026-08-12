@@ -94,9 +94,10 @@ export function StreakList() {
         id: 'job_name',
         accessorKey: 'job_name',
         header: 'Job',
-        size: 300,
+        size: 400,
+        meta: { cellClassName: 'whitespace-normal' },
         cell: ({ row }) => (
-          <span className="font-mono text-xs text-foreground truncate block max-w-[280px]">
+          <span className="font-mono text-xs text-foreground break-all whitespace-normal">
             {row.original.job_name}
           </span>
         ),
@@ -257,11 +258,14 @@ export function StreakList() {
                 className="cursor-pointer hover:bg-muted/40 transition-colors h-11"
                 onClick={() => toggleRow(row.original.id)}
               >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="py-2" style={{ width: cell.column.getSize() }}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
+                {row.getVisibleCells().map((cell) => {
+                  const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
+                  return (
+                    <TableCell key={cell.id} className={`py-2 ${cellClassName}`} style={{ width: cell.column.getSize() }}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  )
+                })}
               </TableRow>
               {/* Expanded detail row */}
               {expandedRows[row.original.id] && (

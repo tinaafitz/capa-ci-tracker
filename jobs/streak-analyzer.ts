@@ -156,6 +156,37 @@ async function processJobStreaks(
   const builds = buildsRes.rows as Build[];
   if (builds.length < 2) return; // Need at least 2 builds to form a streak
 
+  // Batch-fetch all error signatures for this job's builds in one query
+  // instead of querying per build (N+1 → 2 queries)
+  const buildIds = builds.map(b => b.id);
+
+  const sigRes = await query(
+    `SELECT st.build_id, st.error_signature
+     FROM support_tickets st
+     WHERE st.build_id = ANY($1)`,
+    [buildIds],
+  );
+  const sigByBuild = new Map<string, string>();
+  for (const row of sigRes.rows) {
+    sigByBuild.set(row.build_id, row.error_signature);
+  }
+
+  // Also batch-fetch dedup-linked error signatures from activities
+  const dedupRes = await query(
+    `SELECT a.build_id, a.metadata->>'error_signature' AS error_signature
+     FROM activities a
+     WHERE a.build_id = ANY($1)
+       AND a.activity_type = 'build_completed'
+       AND a.metadata->>'dedup' = 'true'`,
+    [buildIds],
+  );
+  for (const row of dedupRes.rows) {
+    // Only set if not already found via support_tickets
+    if (!sigByBuild.has(row.build_id) && row.error_signature) {
+      sigByBuild.set(row.build_id, row.error_signature);
+    }
+  }
+
   // Walk the timeline, detecting consecutive failure runs
   const detectedStreaks: DetectedStreak[] = [];
   let currentStreak: DetectedStreak | null = null;
@@ -171,26 +202,8 @@ async function processJobStreaks(
       currentStreak = null;
       lastGreenBuildTime = build.started_at;
     } else if (build.status === 'failure') {
-      // Get the error_signature from the linked ticket
-      const sigRes = await query(
-        `SELECT error_signature FROM support_tickets WHERE build_id = $1 LIMIT 1`,
-        [build.id],
-      );
-      // Also check tickets linked by same signature via triage dedup
-      let errorSignature: string | null = sigRes.rows[0]?.error_signature ?? null;
-      if (!errorSignature) {
-        // Check activities for dedup-linked tickets
-        const actRes = await query(
-          `SELECT metadata->>'error_signature' AS error_signature
-           FROM activities
-           WHERE build_id = $1
-             AND activity_type = 'build_completed'
-             AND metadata->>'dedup' = 'true'
-           LIMIT 1`,
-          [build.id],
-        );
-        errorSignature = actRes.rows[0]?.error_signature ?? null;
-      }
+      // Look up the error_signature from pre-fetched maps (O(1))
+      const errorSignature: string | null = sigByBuild.get(build.id) ?? null;
 
       if (!currentStreak) {
         // Start a new streak

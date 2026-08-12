@@ -15,13 +15,7 @@ import {
 } from '@/components/ui/table'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterSelect } from '@/components/shared/FilterSelect'
 import {
   Pagination,
   PaginationContent,
@@ -34,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TicketStatusBadge } from './TicketStatusBadge'
 import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { formatAssignee } from '@/lib/utils'
 
 const statusOptions = [
   { value: 'open', label: 'Open' },
@@ -144,7 +139,9 @@ export function TicketList({
         cell: ({ row }) => {
           const assignee = row.getValue('assignee')
           return assignee ? (
-            <span className="text-sm">@{assignee}</span>
+            <span className="text-sm" title={assignee}>
+              @{formatAssignee(assignee)}
+            </span>
           ) : (
             <span className="text-sm text-muted-foreground border border-dashed border-border rounded px-2 py-0.5 cursor-pointer hover:bg-muted">
               Assign
@@ -185,37 +182,19 @@ export function TicketList({
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Select
+        <FilterSelect
           value={filters.status}
           onValueChange={(v) => onFiltersChange({ ...filters, status: v })}
-        >
-          <SelectTrigger className="w-40 h-8">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            {statusOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={statusOptions}
+          className="w-40 h-8"
+        />
 
-        <Select
+        <FilterSelect
           value={filters.severity}
           onValueChange={(v) => onFiltersChange({ ...filters, severity: v })}
-        >
-          <SelectTrigger className="w-44 h-8">
-            <SelectValue placeholder="Severity" />
-          </SelectTrigger>
-          <SelectContent>
-            {severityOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={severityOptions}
+          className="w-44 h-8"
+        />
 
         <Input
           placeholder="Search tickets..."

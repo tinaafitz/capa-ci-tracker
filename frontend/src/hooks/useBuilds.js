@@ -100,7 +100,7 @@ export function useBuildTrendData(days = 30) {
 
         const { data: builds, error: fetchError } = await supabase
           .from('builds')
-          .select('started_at, status, pass_count, fail_count, skip_count')
+          .select('started_at, status')
           .gte('started_at', since)
           .order('started_at', { ascending: true })
           .limit(1000)
@@ -111,16 +111,16 @@ export function useBuildTrendData(days = 30) {
           return
         }
 
-        // Group by date
+        // Group by date — count builds by status, not individual test counts
         const grouped = {}
         for (const build of builds || []) {
           const date = new Date(build.started_at).toISOString().split('T')[0]
           if (!grouped[date]) {
             grouped[date] = { date, pass: 0, fail: 0, skip: 0, total: 0 }
           }
-          grouped[date].pass += build.pass_count || 0
-          grouped[date].fail += build.fail_count || 0
-          grouped[date].skip += build.skip_count || 0
+          if (build.status === 'success') grouped[date].pass += 1
+          else if (build.status === 'failure') grouped[date].fail += 1
+          else grouped[date].skip += 1
           grouped[date].total += 1
         }
 

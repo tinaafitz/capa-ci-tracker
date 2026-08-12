@@ -1,11 +1,5 @@
 import { useState, useCallback } from 'react'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterSelect } from '@/components/shared/FilterSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { PipelineFunnel } from '@/components/pipeline/PipelineFunnel'
@@ -82,44 +76,26 @@ export function PipelinePage() {
           {/* Show filters only on the funnel tab */}
           {activeTab === 'funnel' && (
             <div className="flex items-center gap-2">
-              <Select value={severity} onValueChange={setSeverity}>
-                <SelectTrigger className="h-8 w-[150px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {severityOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FilterSelect
+                value={severity}
+                onValueChange={setSeverity}
+                options={severityOptions}
+                className="h-8 w-[150px] text-xs"
+              />
 
-              <Select value={stageFilter} onValueChange={setStageFilter}>
-                <SelectTrigger className="h-8 w-[140px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {stageOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FilterSelect
+                value={stageFilter}
+                onValueChange={setStageFilter}
+                options={stageOptions}
+                className="h-8 w-[140px] text-xs"
+              />
 
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="h-8 w-[130px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {dateRangeOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FilterSelect
+                value={dateRange}
+                onValueChange={setDateRange}
+                options={dateRangeOptions}
+                className="h-8 w-[130px] text-xs"
+              />
             </div>
           )}
         </div>

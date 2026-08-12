@@ -18,9 +18,9 @@ const JENKINS_USER = process.env.JENKINS_USER ?? '';
 const JENKINS_API_TOKEN = process.env.JENKINS_API_TOKEN ?? '';
 const JENKINS_JOBS = (process.env.JENKINS_JOBS ?? 'capi_tests,capi_nightly,rosa_hcp_e2e,capa_e2e_nightly,capa_upgrade_tests').split(',').map(s => s.trim()).filter(Boolean);
 
-const PROW_API_URL = process.env.PROW_API_URL ?? 'https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*openshift-online-rosa-e2e*';
+const PROW_API_URL = process.env.PROW_API_URL ?? 'https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*capa-e2e*';
 const PROW_JOB_PATTERNS = [
-  /periodic-ci-openshift-online-rosa-e2e-/,
+  /periodic-ci-openshift-online-rosa-e2e-main_capa-e2e/,
 ];
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';
@@ -757,9 +757,9 @@ async function fetchJenkinsApi(path: string): Promise<unknown> {
   return response.json();
 }
 
-async function fetchTestReport(buildNumber: number): Promise<JenkinsTestReport | null> {
+async function fetchTestReport(jobName: string, buildNumber: number): Promise<JenkinsTestReport | null> {
   try {
-    return await fetchJenkinsApi(`/${buildNumber}/testReport/api/json`) as JenkinsTestReport;
+    return await fetchJenkinsApi(`/job/${jobName}/${buildNumber}/testReport/api/json`) as JenkinsTestReport;
   } catch {
     return null;
   }
@@ -790,7 +790,7 @@ async function ingestJenkins(): Promise<{ ingested: number; skipped: number; err
     let builds: JenkinsBuild[];
     try {
       const data = await fetchJenkinsApi(
-        `/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
+        `/job/${jobName}/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
       ) as { builds: JenkinsBuild[] };
       builds = data.builds ?? [];
     } catch (err) {
@@ -806,7 +806,7 @@ async function ingestJenkins(): Promise<{ ingested: number; skipped: number; err
 
         let testReport: JenkinsTestReport | null = null;
         if (build.result) {
-          testReport = await fetchTestReport(build.number);
+          testReport = await fetchTestReport(jobName, build.number);
         }
 
         const testFailures = extractTestFailures(testReport);

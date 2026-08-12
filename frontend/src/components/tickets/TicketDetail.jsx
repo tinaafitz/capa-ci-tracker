@@ -34,12 +34,20 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { ErrorLinesBlock } from '@/components/pipeline/StreakDetail'
 import { supabase } from '@/config/supabase'
 import { useAppActions } from '@/store/AppContext'
+import { useTicketDetail } from '@/hooks/useTickets'
 import { useBuildLogs, useTicketStreak } from '@/hooks/useStreaks'
 import { toast } from 'sonner'
 
-export function TicketDetail({ ticket, open, onOpenChange }) {
+export function TicketDetail({ ticket: ticketProp, open, onOpenChange }) {
   const navigate = useNavigate()
   const { updateTicket, selectBuild } = useAppActions()
+
+  // Re-fetch the full ticket with joined build data when the sheet is open.
+  // The ticketProp from the list view comes from v_ticket_summary (flat columns,
+  // no nested builds object). useTicketDetail fetches from support_tickets with
+  // embedded joins: builds:build_id(...) and verify_build:verified_in_build_id(...)
+  const { ticket: fullTicket } = useTicketDetail(open ? ticketProp?.id : null)
+  const ticket = fullTicket || ticketProp
 
   const [tasks, setTasks] = useState([])
   const [activities, setActivities] = useState([])
@@ -255,7 +263,26 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
   if (!ticket) return null
 
   const advanceLabel = getAdvanceLabel(ticket.status)
+
+  // ticket.builds comes from useTicketDetail's join query (builds:build_id(...)).
+  // If unavailable, fall back to flat columns from v_ticket_summary.
   const linkedBuild = ticket.builds
+    ? ticket.builds
+    : ticket.build_job_name
+      ? {
+          id: ticket.build_id,
+          external_id: ticket.build_external_id,
+          job_name: ticket.build_job_name,
+          job_url: ticket.build_job_url,
+          source: ticket.build_source,
+          status: ticket.build_status,
+          ocp_version: ticket.build_ocp_version,
+          started_at: ticket.build_started_at,
+          finished_at: ticket.build_finished_at,
+          fail_count: ticket.build_fail_count,
+          test_failures: null, // not available from v_ticket_summary
+        }
+      : null
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -562,9 +589,37 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
 
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Error Signature</Label>
-                    <span className="block text-sm font-mono truncate text-muted-foreground">
-                      {ticket.error_signature || '--'}
-                    </span>
+                    {ticket.error_signature ? (
+                      <button
+                        className="flex items-center gap-1.5 group text-left w-full"
+                        title={ticket.error_signature}
+                        onClick={() => {
+                          navigator.clipboard.writeText(ticket.error_signature).then(() => {
+                            toast.success('Error signature copied to clipboard')
+                          }).catch(() => {
+                            toast.error('Failed to copy')
+                          })
+                        }}
+                      >
+                        <span className="block text-sm font-mono truncate text-muted-foreground group-hover:text-foreground transition-colors">
+                          {ticket.error_signature}
+                        </span>
+                        <svg
+                          className="w-3.5 h-3.5 shrink-0 text-muted-foreground/50 group-hover:text-foreground transition-colors"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="5" y="5" width="9" height="9" rx="1" />
+                          <path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <span className="block text-sm font-mono text-muted-foreground">--</span>
+                    )}
                   </div>
                 </div>
               </div>

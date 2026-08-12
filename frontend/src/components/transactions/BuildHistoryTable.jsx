@@ -13,13 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { FilterSelect } from '@/components/shared/FilterSelect'
 import {
   Pagination,
   PaginationContent,
@@ -69,11 +63,16 @@ export function BuildHistoryTable({
       {
         accessorKey: 'job_name',
         header: 'Job',
-        cell: ({ row }) => (
-          <span className="text-sm break-all">
-            {row.getValue('job_name')}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const fullName = row.getValue('job_name') || ''
+          return (
+            <span className="text-sm font-mono break-all whitespace-normal">
+              {fullName}
+            </span>
+          )
+        },
+        size: 500,
+        meta: { cellClassName: 'whitespace-normal' },
       },
       {
         id: 'repo',
@@ -188,33 +187,19 @@ export function BuildHistoryTable({
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Select
+        <FilterSelect
           value={filters.job || 'all'}
           onValueChange={(v) => onFiltersChange({ ...filters, job: v })}
-        >
-          <SelectTrigger className="w-48 h-8">
-            <SelectValue placeholder="All Jobs" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Jobs</SelectItem>
-          </SelectContent>
-        </Select>
+          options={[{ value: 'all', label: 'All Jobs' }]}
+          className="w-48 h-8"
+        />
 
-        <Select
+        <FilterSelect
           value={filters.status || 'all'}
           onValueChange={(v) => onFiltersChange({ ...filters, status: v })}
-        >
-          <SelectTrigger className="w-36 h-8">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            {statusOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={statusOptions}
+          className="w-36 h-8"
+        />
 
         <DateRangeFilter
           value={filters.dateRange || '7d'}
@@ -302,14 +287,17 @@ export function BuildHistoryTable({
                     }`}
                     onClick={() => onBuildClick(row.original)}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="py-2">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
+                      return (
+                        <TableCell key={cell.id} className={`py-2 ${cellClassName}`}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 )
               })
@@ -399,6 +387,9 @@ function formatDuration(ms) {
 
 function extractRepo(jobName, source, jobUrl) {
   if (source === 'prow' && jobName) {
+    if (jobName.includes('openshift-online-rosa-e2e')) {
+      return 'stolostron/rosa-hcp-e2e-test'
+    }
     const match = jobName.match(/^(?:periodic|pull|batch)-ci-(.+?)-(main|master|release-[\d.]+)/)
     if (match) {
       const parts = match[1].split('-')
@@ -418,6 +409,7 @@ function extractRepo(jobName, source, jobUrl) {
   }
   return null
 }
+
 
 function generatePageNumbers(current, total) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
