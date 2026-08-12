@@ -387,6 +387,9 @@ function formatDuration(ms) {
 
 function extractRepo(jobName, source, jobUrl) {
   if (source === 'prow' && jobName) {
+    if (jobName.includes('openshift-online-rosa-e2e')) {
+      return 'stolostron/rosa-hcp-e2e-test'
+    }
     const match = jobName.match(/^(?:periodic|pull|batch)-ci-(.+?)-(main|master|release-[\d.]+)/)
     if (match) {
       const parts = match[1].split('-')
