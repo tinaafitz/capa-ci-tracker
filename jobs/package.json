@@ -8,7 +8,8 @@
     "ingest:prow": "node --import tsx jobs/ingest.ts --source=prow",
     "resolution-tracker": "node --import tsx jobs/resolution-tracker.ts",
     "retention-cleanup": "node --import tsx jobs/retention-cleanup.ts",
-    "streak-analyzer": "node --import tsx jobs/streak-analyzer.ts"
+    "streak-analyzer": "node --import tsx jobs/streak-analyzer.ts",
+    "morning-digest": "node --import tsx jobs/morning-digest.ts"
   },
   "dependencies": {
     "pg": "^8.13.1",

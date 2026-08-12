@@ -6,10 +6,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
 import { PipelineFunnel } from '@/components/pipeline/PipelineFunnel'
 import { PipelineTicketList } from '@/components/pipeline/PipelineTicketList'
+import { StreakList } from '@/components/pipeline/StreakList'
 import { TicketDetail } from '@/components/tickets/TicketDetail'
 import { useLifecyclePipeline, usePipelineFunnel } from '@/hooks/useLifecycleData'
+import { useActiveStreakCount } from '@/hooks/useStreaks'
 import { useAppState, useAppActions } from '@/store/AppContext'
 
 const severityOptions = [
@@ -45,6 +49,7 @@ export function PipelinePage() {
   const [severity, setSeverity] = useState('all')
   const [dateRange, setDateRange] = useState('30')
   const [stageFilter, setStageFilter] = useState('all')
+  const [activeTab, setActiveTab] = useState('funnel')
 
   const { data: tickets, loading: ticketsLoading } = useLifecyclePipeline({
     severity,
@@ -53,6 +58,8 @@ export function PipelinePage() {
   })
 
   const { data: funnelData, loading: funnelLoading } = usePipelineFunnel()
+
+  const activeStreakCount = useActiveStreakCount()
 
   const handleTicketClick = useCallback(
     (ticket) => {
@@ -72,57 +79,85 @@ export function PipelinePage() {
               Failure-to-fix lifecycle
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={severity} onValueChange={setSeverity}>
-              <SelectTrigger className="h-8 w-[150px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {severityOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Show filters only on the funnel tab */}
+          {activeTab === 'funnel' && (
+            <div className="flex items-center gap-2">
+              <Select value={severity} onValueChange={setSeverity}>
+                <SelectTrigger className="h-8 w-[150px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {severityOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <Select value={stageFilter} onValueChange={setStageFilter}>
-              <SelectTrigger className="h-8 w-[140px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {stageOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <Select value={stageFilter} onValueChange={setStageFilter}>
+                <SelectTrigger className="h-8 w-[140px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {stageOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="h-8 w-[130px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {dateRangeOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              <Select value={dateRange} onValueChange={setDateRange}>
+                <SelectTrigger className="h-8 w-[130px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {dateRangeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto px-6 py-5 space-y-5">
-        <PipelineFunnel data={funnelData} loading={funnelLoading} />
-        <PipelineTicketList
-          tickets={tickets}
-          loading={ticketsLoading}
-          onTicketClick={handleTicketClick}
-        />
+      {/* Tab navigation + content */}
+      <div className="flex-1 overflow-auto">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="px-6 pt-3">
+            <TabsList>
+              <TabsTrigger value="funnel">Resolution Funnel</TabsTrigger>
+              <TabsTrigger value="streaks" className="gap-1.5">
+                Failure Streaks
+                {activeStreakCount > 0 && (
+                  <Badge
+                    variant="destructive"
+                    className="ml-1 h-4 min-w-4 px-1 text-[10px] font-bold"
+                  >
+                    {activeStreakCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <TabsContent value="funnel" className="px-6 py-5 space-y-5">
+            <PipelineFunnel data={funnelData} loading={funnelLoading} />
+            <PipelineTicketList
+              tickets={tickets}
+              loading={ticketsLoading}
+              onTicketClick={handleTicketClick}
+            />
+          </TabsContent>
+
+          <TabsContent value="streaks" className="px-6 py-5">
+            <StreakList />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Ticket detail sheet (reused from Tickets page) */}
