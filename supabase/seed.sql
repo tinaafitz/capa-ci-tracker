@@ -204,3 +204,10 @@ UPDATE support_tickets SET matched_pattern = 'rosacontrolplane_stuck_deletion' W
 
 UPDATE support_tickets SET diagnosed_at = '2026-08-09T09:01:00Z' WHERE id = 'b0000001-0000-0000-0000-000000000001';
 UPDATE support_tickets SET diagnosed_at = '2026-08-10T01:31:00Z' WHERE id = 'b0000001-0000-0000-0000-000000000004';
+
+-- ============================================================
+-- Ensure log_fetched is false on all seed builds
+-- (column defaults to false, but set explicitly for clarity)
+-- ============================================================
+
+UPDATE builds SET log_fetched = false WHERE log_fetched IS DISTINCT FROM false;

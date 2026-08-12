@@ -3,6 +3,8 @@
 //
 // 1. Nulls out raw_payload on builds older than 90 days
 // 2. Deletes agent_runs older than 30 days
+// 3. Nulls out build_logs.log_text older than 30 days (keeps error_extract)
+// 4. Deletes failure_streaks older than 180 days
 //
 // Usage:
 //   node --import tsx jobs/retention-cleanup.ts
@@ -32,14 +34,39 @@ async function main() {
     const agentRunsDeleted = agentRunsRes.rowCount ?? 0;
     log('INFO', 'retention-cleanup', `Deleted ${agentRunsDeleted} agent_runs older than 30 days`);
 
+    // Phase 3: Nullify build_logs.log_text older than 30 days (keep error_extract)
+    const buildLogsRes = await query(
+      `UPDATE build_logs
+       SET log_text = NULL
+       WHERE fetched_at < now() - interval '30 days'
+         AND log_text IS NOT NULL`,
+    );
+    const buildLogsCleared = buildLogsRes.rowCount ?? 0;
+    log('INFO', 'retention-cleanup', `Cleared log_text on ${buildLogsCleared} build_logs older than 30 days`);
+
+    // Phase 4: Delete failure_streaks older than 180 days
+    const streaksRes = await query(
+      `DELETE FROM failure_streaks
+       WHERE ended_at < now() - interval '180 days'`,
+    );
+    const streaksDeleted = streaksRes.rowCount ?? 0;
+    log('INFO', 'retention-cleanup', `Deleted ${streaksDeleted} failure_streaks older than 180 days`);
+
     // Log the agent run
     await recordAgentRun({
       agentName: 'retention-cleanup',
       trigger: 'cron',
-      inputPayload: { retention_days_raw_payload: 90, retention_days_agent_runs: 30 },
+      inputPayload: {
+        retention_days_raw_payload: 90,
+        retention_days_agent_runs: 30,
+        retention_days_build_logs_text: 30,
+        retention_days_failure_streaks: 180,
+      },
       outputPayload: {
         raw_payload_cleared: rawPayloadCleared,
         agent_runs_deleted: agentRunsDeleted,
+        build_logs_cleared: buildLogsCleared,
+        failure_streaks_deleted: streaksDeleted,
       },
       success: true,
       durationMs: Date.now() - startTime,
@@ -48,6 +75,8 @@ async function main() {
     log('INFO', 'retention-cleanup', `Job finished in ${Date.now() - startTime}ms`, {
       rawPayloadCleared,
       agentRunsDeleted,
+      buildLogsCleared,
+      streaksDeleted,
     });
 
     await pool.end();

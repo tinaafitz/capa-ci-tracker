@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/select'
 import {
   TicketStatusBadge,
-  TICKET_STATUSES,
   getNextStatus,
   getAdvanceLabel,
 } from './TicketStatusBadge'
@@ -32,8 +31,10 @@ import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { TaskChecklist } from './TaskChecklist'
 import { SopReferenceCards } from './SopReferenceCards'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { ErrorLinesBlock } from '@/components/pipeline/StreakDetail'
 import { supabase } from '@/config/supabase'
 import { useAppActions } from '@/store/AppContext'
+import { useBuildLogs, useTicketStreak } from '@/hooks/useStreaks'
 import { toast } from 'sonner'
 
 export function TicketDetail({ ticket, open, onOpenChange }) {
@@ -48,6 +49,14 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
   const [editingRootCause, setEditingRootCause] = useState(false)
   const [submittingNote, setSubmittingNote] = useState(false)
   const [activeTab, setActiveTab] = useState('diagnosis')
+  const [streakExpanded, setStreakExpanded] = useState(false)
+  const [upstreamExpanded, setUpstreamExpanded] = useState(false)
+
+  // Fetch build logs for error context
+  const { buildLog } = useBuildLogs(ticket?.build_id)
+
+  // Fetch streak data if ticket has a streak_id
+  const { streak } = useTicketStreak(ticket?.streak_id)
 
   // Load tasks and activities when ticket changes
   useEffect(() => {
@@ -303,6 +312,147 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
                   </Button>
                 )}
               </div>
+
+              {/* Streak banner -- shown when ticket is part of a failure streak */}
+              {streak && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M8 2L3 14h10L8 2z" />
+                        <path d="M8 6v4M8 12h.01" />
+                      </svg>
+                      <span className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                        Part of a {streak.streak_length}-day failure streak on{' '}
+                        <span className="font-mono text-xs">{streak.job_name}</span>
+                      </span>
+                    </div>
+                    <button
+                      className="text-xs text-amber-700 dark:text-amber-300 hover:underline"
+                      onClick={() => setStreakExpanded(!streakExpanded)}
+                    >
+                      {streakExpanded ? 'Collapse' : 'View streak'}
+                    </button>
+                  </div>
+
+                  {streakExpanded && streak.phases?.length > 0 && (
+                    <div className="mt-2 space-y-2 pl-6">
+                      {streak.phases.map((phase, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${
+                            phase.fix_verified
+                              ? 'bg-emerald-500'
+                              : 'bg-amber-500'
+                          }`} />
+                          <span className="font-medium text-foreground">
+                            Phase {phase.phase_number}:
+                          </span>
+                          <span className="text-muted-foreground truncate">
+                            {phase.summary || phase.matched_pattern || 'Unknown'}
+                          </span>
+                          {phase.fix_verified && (
+                            <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50">
+                              Cleared
+                            </Badge>
+                          )}
+                          {phase.fix_pr_url && (
+                            <a
+                              href={phase.fix_pr_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              {extractPrLabel(phase.fix_pr_url)}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error lines from build log */}
+              {buildLog?.error_extract && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Error Output
+                    </Label>
+                    <CopyErrorButton ticket={ticket} buildLog={buildLog} streak={streak} />
+                  </div>
+                  <ErrorLinesBlock
+                    errorExtract={buildLog.error_extract}
+                    errorLines={buildLog.error_lines}
+                  />
+                </div>
+              )}
+
+              {/* Upstream commits from streak */}
+              {streak?.upstream_commits?.length > 0 && (
+                <div className="space-y-2">
+                  <button
+                    className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                    onClick={() => setUpstreamExpanded(!upstreamExpanded)}
+                  >
+                    <svg
+                      className={`w-3 h-3 transition-transform ${upstreamExpanded ? 'rotate-90' : ''}`}
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    >
+                      <path d="M4 2l4 4-4 4" />
+                    </svg>
+                    <span className="uppercase tracking-wide">Upstream Commits</span>
+                    <span className="normal-case tracking-normal text-muted-foreground/60">
+                      ({streak.upstream_commits.reduce((s, r) => s + (r.commits?.length || 0), 0)} commits)
+                    </span>
+                  </button>
+
+                  {upstreamExpanded && (
+                    <div className="space-y-3 pl-5">
+                      {streak.upstream_commits.map((repo, ri) => (
+                        <div key={ri} className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium font-mono text-foreground">
+                              {repo.repo}
+                            </span>
+                            {repo.compare_url && (
+                              <a
+                                href={repo.compare_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-primary hover:underline"
+                              >
+                                compare
+                              </a>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            {(repo.commits || []).map((commit, ci) => (
+                              <div key={ci} className="flex items-start gap-2 text-xs">
+                                <a
+                                  href={`https://github.com/${repo.repo}/commit/${commit.sha}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono text-primary hover:underline shrink-0"
+                                >
+                                  {commit.sha?.slice(0, 7)}
+                                </a>
+                                <span className="text-muted-foreground truncate">
+                                  {commit.message?.split('\n')[0]}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <Separator />
 
@@ -613,6 +763,79 @@ export function TicketDetail({ ticket, open, onOpenChange }) {
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function extractPrLabel(url) {
+  if (!url) return 'PR'
+  const match = url.match(/pull\/(\d+)/)
+  return match ? `PR #${match[1]}` : 'PR'
+}
+
+/**
+ * Copy a markdown-formatted snippet with ticket context to the clipboard.
+ * Includes ticket number, error signature, error lines, and upstream commits.
+ */
+function CopyErrorButton({ ticket, buildLog, streak }) {
+  const handleCopy = useCallback(() => {
+    const parts = []
+
+    parts.push(`## CAPA-${ticket.ticket_number}: ${ticket.title}`)
+    parts.push('')
+
+    if (ticket.error_signature) {
+      parts.push(`**Error signature:** \`${ticket.error_signature}\``)
+    }
+    if (ticket.severity) {
+      parts.push(`**Severity:** ${ticket.severity.replace(/_/g, ' ')}`)
+    }
+    if (ticket.root_cause) {
+      parts.push(`**Root cause:** ${ticket.root_cause}`)
+    }
+    parts.push('')
+
+    if (buildLog?.error_extract) {
+      parts.push('### Error output')
+      parts.push('```')
+      parts.push(buildLog.error_extract.trim())
+      parts.push('```')
+      parts.push('')
+    }
+
+    if (streak?.upstream_commits?.length > 0) {
+      parts.push('### Upstream commits')
+      for (const repo of streak.upstream_commits) {
+        parts.push(`**${repo.repo}**`)
+        for (const commit of repo.commits || []) {
+          parts.push(`- [\`${commit.sha?.slice(0, 7)}\`](https://github.com/${repo.repo}/commit/${commit.sha}) ${commit.message?.split('\n')[0]}`)
+        }
+        if (repo.compare_url) {
+          parts.push(`  [Compare](${repo.compare_url})`)
+        }
+      }
+    }
+
+    const markdown = parts.join('\n')
+    navigator.clipboard.writeText(markdown).then(() => {
+      toast.success('Copied to clipboard')
+    }).catch(() => {
+      toast.error('Failed to copy')
+    })
+  }, [ticket, buildLog, streak])
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-xs gap-1"
+      onClick={handleCopy}
+    >
+      <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="5" y="5" width="9" height="9" rx="1" />
+        <path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2" />
+      </svg>
+      Copy
+    </Button>
   )
 }
 

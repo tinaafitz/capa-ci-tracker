@@ -31,7 +31,9 @@ resources:
   - cronjob-ingest-jenkins.yaml
   - cronjob-ingest-prow.yaml
   - cronjob-resolution-tracker.yaml
+  - cronjob-streak-analyzer.yaml
   - cronjob-retention-cleanup.yaml
+  - cronjob-morning-digest.yaml
   - route-frontend.yaml
 
 labels:

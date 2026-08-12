@@ -18,11 +18,9 @@ const JENKINS_USER = process.env.JENKINS_USER ?? '';
 const JENKINS_API_TOKEN = process.env.JENKINS_API_TOKEN ?? '';
 const JENKINS_JOBS = (process.env.JENKINS_JOBS ?? 'capi_tests,capi_nightly,rosa_hcp_e2e,capa_e2e_nightly,capa_upgrade_tests').split(',').map(s => s.trim()).filter(Boolean);
 
-const PROW_API_URL = process.env.PROW_API_URL ?? 'https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*capa-e2e*';
+const PROW_API_URL = process.env.PROW_API_URL ?? 'https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*openshift-online-rosa-e2e*';
 const PROW_JOB_PATTERNS = [
-  /rosa-e2e-main.*capa-e2e/,
-  /periodic-ci-.*capa.*e2e/,
-  /periodic-ci-.*rosa.*hcp/,
+  /periodic-ci-openshift-online-rosa-e2e-/,
 ];
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL ?? '';

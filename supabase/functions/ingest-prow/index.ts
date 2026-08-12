@@ -13,13 +13,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // Prow API endpoint (public, no auth required)
 const PROW_API_URL =
-  "https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*capa-e2e*";
+  "https://prow.ci.openshift.org/prowjobs.js?type=periodic&job=*openshift-online-rosa-e2e*";
 
-// Additional job patterns to match
+// Only match jobs from the openshift-online/rosa-e2e repo
 const PROW_JOB_PATTERNS = [
-  /rosa-e2e-main.*capa-e2e/,
-  /periodic-ci-.*capa.*e2e/,
-  /periodic-ci-.*rosa.*hcp/,
+  /periodic-ci-openshift-online-rosa-e2e-/,
 ];
 
 interface ProwJob {

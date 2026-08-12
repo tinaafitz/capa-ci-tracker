@@ -9,12 +9,17 @@
  */
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
+const API_KEY = import.meta.env.VITE_API_KEY || ''
 
 class PostgRESTFilterBuilder {
   constructor(url, { method = 'GET', headers = {}, body = null } = {}) {
     this._url = url
     this._method = method
     this._headers = { ...headers }
+    if (API_KEY) {
+      this._headers['apikey'] = API_KEY
+      this._headers['Authorization'] = `Bearer ${API_KEY}`
+    }
     this._body = body
     this._params = new URLSearchParams()
     this._isSingle = false
@@ -313,12 +318,17 @@ export const supabase = {
    */
   async rpc(fn, args = {}) {
     try {
+      const rpcHeaders = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      }
+      if (API_KEY) {
+        rpcHeaders['apikey'] = API_KEY
+        rpcHeaders['Authorization'] = `Bearer ${API_KEY}`
+      }
       const res = await fetch(`${API_URL}/rpc/${fn}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: rpcHeaders,
         body: JSON.stringify(args),
       })
 
