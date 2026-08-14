@@ -36,29 +36,46 @@ jobs:
       - name: Build
         run: npm run build
 
-  supabase:
-    name: Supabase Migrations & Functions
+  server:
+    name: Server Type-Check & Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate migrations exist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify server starts and responds
         run: |
-          count=$(ls -1 supabase/migrations/*.sql 2>/dev/null | wc -l)
-          echo "Found $count migration files"
-          if [ "$count" -eq 0 ]; then
-            echo "::error::No migration files found in supabase/migrations/"
+          node dist/index.js &
+          SERVER_PID=$!
+          # Wait for server to be ready
+          for i in $(seq 1 15); do
+            if curl -s http://localhost:3001/api/builds > /dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          # Verify the API responds with HTTP 200
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/builds)
+          kill $SERVER_PID 2>/dev/null || true
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Server health check failed — GET /api/builds returned HTTP $HTTP_CODE"
             exit 1
           fi
-
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v1.x
-
-      - name: Type-check Edge Functions
-        run: |
-          for fn_dir in supabase/functions/*/; do
-            fn_name=$(basename "$fn_dir")
-            echo "Checking $fn_name..."
-            deno check "$fn_dir/index.ts"
-          done
+          echo "Server health check passed (HTTP $HTTP_CODE)"

@@ -1,28 +1,38 @@
-.PHONY: dev build lint supabase-start supabase-stop db-reset deploy
+.PHONY: dev build start install seed db-reset deploy lint
 
+# Development: start both servers concurrently
 dev:
-	cd frontend && npm run dev
+	@echo "Starting frontend and backend dev servers..."
+	@(cd server && npm run dev) &
+	@(cd frontend && npm run dev)
 
+# Build: frontend then server
 build:
 	cd frontend && npm run build
+	cd server && npm run build
 
+# Production start (after build)
+start:
+	cd server && npm start
+
+# Install all dependencies
+install:
+	cd frontend && npm install
+	cd server && npm install
+
+# Lint frontend
 lint:
 	cd frontend && npm run lint
 
-supabase-start:
-	supabase start
+# Seed the database with sample data
+seed:
+	cd server && npm run seed
 
-supabase-stop:
-	supabase stop
-
+# Reset DB (re-apply schema + seed)
 db-reset:
-	supabase db reset
+	rm -f server/*.db server/*.db-wal server/*.db-shm
+	cd server && npm run seed
 
+# Deploy (build + start — for simple deployments)
 deploy: build
-	supabase db push
-	supabase functions deploy ingest-jenkins --no-verify-jwt
-	supabase functions deploy ingest-prow --no-verify-jwt
-	supabase functions deploy triage --no-verify-jwt
-	supabase functions deploy diagnosis --no-verify-jwt
-	supabase functions deploy resolution-tracker --no-verify-jwt
-	supabase functions deploy notify --no-verify-jwt
+	@echo "Build complete. Run 'make start' to start the production server."

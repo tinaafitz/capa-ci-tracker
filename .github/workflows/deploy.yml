@@ -13,58 +13,41 @@ jobs:
     name: CI Gate
     uses: ./.github/workflows/ci.yml
 
-  deploy-migrations:
-    name: Deploy Migrations
+  build-and-push:
+    name: Build & Push Container
     runs-on: ubuntu-latest
     needs: ci
     steps:
       - uses: actions/checkout@v4
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      # Deployment target is now a Docker container running Node.js + SQLite.
+      # Configure the registry URL and credentials below to push to your
+      # container registry (e.g., quay.io, GHCR, or an internal OpenShift registry).
+      #
+      # Required secrets:
+      #   CONTAINER_REGISTRY     — registry host (e.g., quay.io/myorg)
+      #   CONTAINER_REGISTRY_USER
+      #   CONTAINER_REGISTRY_PASSWORD
+      #
+      # For a simple non-container deployment (e.g., a VM or bare-metal host),
+      # replace this job with an rsync/scp step that copies the built artifacts.
 
-      - name: Link Supabase project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-
-      - name: Push migrations
-        run: supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-
-  deploy-functions:
-    name: Deploy Edge Functions
-    runs-on: ubuntu-latest
-    needs: deploy-migrations
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Link Supabase project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
-
-      - name: Deploy all Edge Functions
+      - name: Build Docker image
         run: |
-          functions=(
-            ingest-jenkins
-            ingest-prow
-            triage
-            diagnosis
-            resolution-tracker
-            notify
-          )
-          for fn in "${functions[@]}"; do
-            echo "Deploying $fn..."
-            supabase functions deploy "$fn" --no-verify-jwt
-          done
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          docker build -t capa-ci-tracker:${{ github.sha }} .
+          docker tag capa-ci-tracker:${{ github.sha }} capa-ci-tracker:latest
+
+      # Uncomment and configure when a container registry is available:
+      #
+      # - name: Log in to container registry
+      #   run: |
+      #     echo "${{ secrets.CONTAINER_REGISTRY_PASSWORD }}" | \
+      #       docker login "${{ secrets.CONTAINER_REGISTRY }}" \
+      #         -u "${{ secrets.CONTAINER_REGISTRY_USER }}" --password-stdin
+      #
+      # - name: Push image
+      #   run: |
+      #     docker tag capa-ci-tracker:${{ github.sha }} ${{ secrets.CONTAINER_REGISTRY }}/capa-ci-tracker:${{ github.sha }}
+      #     docker tag capa-ci-tracker:latest ${{ secrets.CONTAINER_REGISTRY }}/capa-ci-tracker:latest
+      #     docker push ${{ secrets.CONTAINER_REGISTRY }}/capa-ci-tracker:${{ github.sha }}
+      #     docker push ${{ secrets.CONTAINER_REGISTRY }}/capa-ci-tracker:latest

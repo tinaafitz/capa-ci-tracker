@@ -50,19 +50,16 @@ Browser --> Route --> OAuth Proxy --> nginx (static + /api/ proxy)
 ## Quick Start
 
 ```bash
-# Start local Supabase (requires Docker/Podman)
-supabase start
-supabase db reset
+# Install dependencies
+make install
 
-# Start frontend
-cd frontend && npm ci && npm run dev
+# Seed the database and start both servers
+make seed
+make dev
 
-# Ingest Prow builds
-cd jobs && npm ci
-DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres npx tsx ingest.ts --source=prow
-
-# Run streak analyzer
-DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres npx tsx streak-analyzer.ts
+# Or individually:
+cd server && npm run dev   # Express API on :3001
+cd frontend && npm run dev # Vite frontend on :5173
 ```
 
 ## OpenShift Deployment
