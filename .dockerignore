@@ -1,8 +1,8 @@
 node_modules
 */node_modules
-*.db
-*.db-wal
-*.db-shm
+**/*.db
+**/*.db-wal
+**/*.db-shm
 frontend/.env
 frontend/.env.local
 server/.env

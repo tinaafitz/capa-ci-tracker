@@ -19,6 +19,7 @@ import {
   beforeTicketUpdate,
   setUpdatedAt,
 } from '../triggers.js';
+import { config } from '../config.js';
 
 export const tableRouter = Router();
 
@@ -48,6 +49,31 @@ const VIEWS = new Set([
 ]);
 
 const ALLOWED = new Set([...TABLES, ...VIEWS]);
+
+// ---------------------------------------------------------------------------
+// Column whitelist per table — validated before any INSERT/UPDATE to prevent
+// SQL injection via crafted column names.
+// ---------------------------------------------------------------------------
+
+const TABLE_COLUMNS: Record<string, Set<string>> = {
+  builds: new Set(['id','source','external_id','job_name','job_url','status','pass_count','fail_count','skip_count','total_count','duration_ms','started_at','finished_at','ocp_version','parameters','test_failures','raw_payload','log_fetched','created_at','updated_at']),
+  support_tickets: new Set(['id','ticket_number','title','description','status','severity','assignee','error_signature','root_cause','root_cause_category','matched_pattern','fix_pr_url','fix_pr_number','upstream_issue_url','jira_key','labels','build_id','verified_in_build_id','streak_id','signature_cleared_in_build_id','diagnosed_at','pr_merged_at','resolved_at','verified_at','created_at','updated_at']),
+  activities: new Set(['id','activity_type','title','description','build_id','ticket_id','actor','metadata','created_at']),
+  tasks: new Set(['id','ticket_id','title','status','assignee','sort_order','created_at','completed_at']),
+  agent_runs: new Set(['id','agent_name','trigger_source','input_payload','output_payload','success','error_message','duration_ms','created_at']),
+  sop_mappings: new Set(['id','pattern_type','sop_url','sop_title','sop_section','summary','source_repo','last_verified','created_at','updated_at']),
+  failure_streaks: new Set(['id','job_name','source','status','started_at','ended_at','streak_length','phase_count','phases','upstream_commits','analysis_summary','analyzed_at','created_at','updated_at']),
+  build_logs: new Set(['id','build_id','log_url','log_text','log_size_bytes','error_extract','error_lines','fetched_at']),
+  streak_builds: new Set(['streak_id','build_id','position','error_signature','phase_number']),
+};
+
+function validateColumns(tableName: string, columns: string[]): string | null {
+  const allowed = TABLE_COLUMNS[tableName];
+  if (!allowed) return null; // views — no write operations allowed anyway
+  const invalid = columns.filter(c => !allowed.has(c));
+  if (invalid.length > 0) return `Unknown column(s): ${invalid.join(', ')}`;
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Columns that store JSON (need special handling for INSERT/UPDATE)
@@ -217,7 +243,8 @@ function handleSelect(req: import('express').Request, res: import('express').Res
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[api] SELECT error on ${tableName}:`, message);
-    res.status(500).json({ message, code: '500' });
+    const clientMessage = config.nodeEnv === 'production' ? 'Internal server error' : message;
+    res.status(500).json({ message: clientMessage, code: '500' });
   }
 }
 
@@ -265,6 +292,12 @@ function handleInsert(req: import('express').Request, res: import('express').Res
         }
 
         const columns = Object.keys(data);
+        const colError = validateColumns(tableName, columns);
+        if (colError) {
+          db.exec('ROLLBACK');
+          res.status(400).json({ message: colError, code: '400' });
+          return;
+        }
         const values = columns.map(c => serializeValue(c, data[c]));
         const placeholders = columns.map(() => '?').join(', ');
         const colList = columns.map(c => `"${c}"`).join(', ');
@@ -327,7 +360,8 @@ function handleInsert(req: import('express').Request, res: import('express').Res
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[api] INSERT error on ${tableName}:`, message);
-    res.status(500).json({ message, code: '500' });
+    const clientMessage = config.nodeEnv === 'production' ? 'Internal server error' : message;
+    res.status(500).json({ message: clientMessage, code: '500' });
   }
 }
 
@@ -344,8 +378,19 @@ function handleUpdate(req: import('express').Request, res: import('express').Res
     return;
   }
 
+  if (parsed.whereClauses.length === 0) {
+    res.status(400).json({ message: 'UPDATE requires at least one filter', code: '400' });
+    return;
+  }
+
   try {
     const data = { ...bodyData } as Record<string, unknown>;
+
+    const colError = validateColumns(tableName, Object.keys(data));
+    if (colError) {
+      res.status(400).json({ message: colError, code: '400' });
+      return;
+    }
 
     // Auto-set updated_at via trigger helper
     const tsFields = TIMESTAMP_DEFAULTS[tableName] || [];
@@ -403,7 +448,8 @@ function handleUpdate(req: import('express').Request, res: import('express').Res
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[api] UPDATE error on ${tableName}:`, message);
-    res.status(500).json({ message, code: '500' });
+    const clientMessage = config.nodeEnv === 'production' ? 'Internal server error' : message;
+    res.status(500).json({ message: clientMessage, code: '500' });
   }
 }
 
@@ -413,6 +459,11 @@ function handleUpdate(req: import('express').Request, res: import('express').Res
 
 function handleDelete(req: import('express').Request, res: import('express').Response, tableName: string): void {
   const parsed = parseRequest(req, tableName);
+
+  if (parsed.whereClauses.length === 0) {
+    res.status(400).json({ message: 'DELETE requires at least one filter', code: '400' });
+    return;
+  }
 
   try {
     let deletedRows: Record<string, unknown>[] = [];
@@ -440,6 +491,7 @@ function handleDelete(req: import('express').Request, res: import('express').Res
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[api] DELETE error on ${tableName}:`, message);
-    res.status(500).json({ message, code: '500' });
+    const clientMessage = config.nodeEnv === 'production' ? 'Internal server error' : message;
+    res.status(500).json({ message: clientMessage, code: '500' });
   }
 }

@@ -38,6 +38,16 @@ const app = express();
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 
+// API key auth middleware — enabled when API_KEY env var is set
+const apiKey = config.apiKey;
+if (apiKey) {
+  app.use('/api', (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (auth === `Bearer ${apiKey}`) return next();
+    res.status(401).json({ message: 'Unauthorized', code: '401' });
+  });
+}
+
 // Mount API routes
 app.use('/api/rpc', rpcRouter);
 app.use('/api', tableRouter);

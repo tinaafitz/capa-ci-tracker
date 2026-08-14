@@ -98,11 +98,32 @@ function extractOcpVersion(params: Record<string, string>): string | null {
   return null;
 }
 
+/**
+ * Fetch wrapper that temporarily disables TLS verification for Jenkins
+ * self-signed certs, scoped to the individual request only.
+ */
+async function fetchJenkins(url: string, options: RequestInit = {}): Promise<Response> {
+  if (process.env.JENKINS_SKIP_TLS === 'true') {
+    const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    try {
+      return await fetch(url, options);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      } else {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
+      }
+    }
+  }
+  return fetch(url, options);
+}
+
 async function fetchJenkinsApi(baseUrl: string, path: string, user: string, token: string): Promise<unknown> {
   const url = `${baseUrl}${path}`;
   const credentials = Buffer.from(`${user}:${token}`).toString('base64');
 
-  const response = await fetch(url, {
+  const response = await fetchJenkins(url, {
     headers: {
       Authorization: `Basic ${credentials}`,
       Accept: 'application/json',
@@ -318,11 +339,6 @@ export async function run(): Promise<AgentResult> {
   if (!JENKINS_BASE_URL || !JENKINS_USER || !JENKINS_API_TOKEN) {
     console.warn('[ingest-jenkins] Missing JENKINS_BASE_URL, JENKINS_USER, or JENKINS_API_TOKEN -- skipping');
     return { success: false, message: 'Missing Jenkins configuration environment variables' };
-  }
-
-  // Handle self-signed certs for internal Jenkins
-  if (process.env.JENKINS_SKIP_TLS === 'true') {
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
   }
 
   const runId = uuidv4();

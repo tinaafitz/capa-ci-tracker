@@ -86,6 +86,14 @@ export interface ParsedQuery {
 // Reserved query param keys (not filter columns)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Column name sanitizer — prevents SQL injection via query param keys
+// ---------------------------------------------------------------------------
+
+function isSafeIdentifier(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
+}
+
 const RESERVED_KEYS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
 
 // ---------------------------------------------------------------------------
@@ -249,6 +257,7 @@ function parseOrFilter(
     if (firstDot === -1) continue;
 
     const column = segment.slice(0, firstDot);
+    if (!isSafeIdentifier(column)) continue; // skip malformed column names
     const opValue = segment.slice(firstDot + 1);
 
     const result = parseFilterOp(column, opValue, tableName);
@@ -346,6 +355,7 @@ export function parseRequest(req: Request, tableName: string): ParsedQuery {
   for (const [key, rawVal] of Object.entries(query)) {
     if (RESERVED_KEYS.has(key)) continue;
     if (rawVal === undefined) continue;
+    if (!isSafeIdentifier(key)) continue; // skip malformed column names
 
     const values = Array.isArray(rawVal) ? rawVal : [rawVal];
     for (const val of values) {
@@ -373,6 +383,7 @@ export function parseRequest(req: Request, tableName: string): ParsedQuery {
     const parts = orderParam.split(',');
     for (const part of parts) {
       const [col, dir] = part.split('.');
+      if (!isSafeIdentifier(col)) continue; // skip malformed column names
       const direction = dir?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
       // For views/tables, qualify column to avoid ambiguity
       orderClauses.push(`"${tableName}"."${col}" ${direction}`);

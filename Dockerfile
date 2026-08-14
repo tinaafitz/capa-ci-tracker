@@ -24,8 +24,8 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Copy compiled server code
 COPY --from=server-builder /app/server/dist ./server/dist
 
-# Copy SQL schema and seed files (needed at runtime for DB initialization)
-COPY --from=server-builder /app/server/db ./server/db
+# Copy only schema.sql (seed.sql contains internal URLs and is not needed in production)
+COPY --from=server-builder /app/server/db/schema.sql ./server/db/schema.sql
 
 # Copy server package files for production dependency install
 COPY server/package*.json ./server/

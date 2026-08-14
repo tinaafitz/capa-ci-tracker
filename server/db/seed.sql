@@ -12,7 +12,7 @@ INSERT OR IGNORE INTO builds (id, source, external_id, job_name, job_url, status
                     parameters, test_failures, log_fetched, created_at, updated_at)
 VALUES
   ('a0000001-0000-0000-0000-000000000002', 'jenkins', '348', 'capi_tests',
-   'https://jenkins-csb-rhacm-tests.dno.corp.redhat.com/job/CI-Jobs/job/capi_tests/348/',
+   'https://jenkins.example.com/job/CI-Jobs/job/capi_tests/348/',
    'failure', 38, 4, 3, 45, 2105640,
    '2026-08-09T08:00:00Z', '2026-08-09T08:35:06Z',
    '4.18.0-nightly-2026-08-09',
@@ -46,7 +46,7 @@ VALUES
 **Build:** #348
 **OCP Version:** 4.18.0-nightly-2026-08-09
 **Failed Tests:** 4/45',
-   'fix_in_progress', 'upstream_breakage', 'tfitzgerald@redhat.com',
+   'fix_in_progress', 'upstream_breakage', 'engineer@example.com',
    'a0000001-0000-0000-0000-000000000002',
    'e2e.capa.cluster_lifecycle::TestAWSClusterCreation::a1b2c3d4e5f6g7h8',
    'CAPI v1.11+ replaced corev1.ObjectReference with ContractVersionedObjectReference in v1beta2, making apiGroup required and removing namespace from Cluster/MachinePool refs. OCP 4.22 nightlies with CAPI v1.13+ enforce this server-side.',
@@ -77,7 +77,7 @@ VALUES
 6. route-monitor-operator unable to reach RHOBS API (SDE-3443)
 
 **Proposed fix:** Add automated cleanup to e2e teardown in stolostron/rosa-hcp-e2e-test that follows the SOP troubleshooting graph.',
-   'investigating', 'infrastructure', 'tfitzgerald@redhat.com',
+   'investigating', 'infrastructure', 'engineer@example.com',
    'a0000001-0000-0000-0000-000000000007',
    'ProwJobExecution::prow-job-result::9988776655443322',
    'ROSAControlPlane stuck in deletion state due to finalizers or AWS resource cleanup',
@@ -91,18 +91,18 @@ VALUES
 -- ============================================================
 
 INSERT OR IGNORE INTO tasks (id, ticket_id, title, status, assignee, sort_order, created_at, completed_at) VALUES
-  ('c0000001-0000-0000-0000-000000000001', 'b0000001-0000-0000-0000-000000000001', 'Investigate logs', 'done', 'tfitzgerald@redhat.com', 1, '2026-08-09T09:00:00Z', '2026-08-09T10:00:00Z'),
-  ('c0000001-0000-0000-0000-000000000002', 'b0000001-0000-0000-0000-000000000001', 'Identify root cause', 'done', 'tfitzgerald@redhat.com', 2, '2026-08-09T09:00:00Z', '2026-08-09T11:30:00Z'),
-  ('c0000001-0000-0000-0000-000000000003', 'b0000001-0000-0000-0000-000000000001', 'Submit fix PR #127', 'done', 'tfitzgerald@redhat.com', 3, '2026-08-09T09:00:00Z', '2026-08-09T15:00:00Z'),
-  ('c0000001-0000-0000-0000-000000000004', 'b0000001-0000-0000-0000-000000000001', 'Verify in next nightly', 'in_progress', 'tfitzgerald@redhat.com', 4, '2026-08-09T09:00:00Z', NULL);
+  ('c0000001-0000-0000-0000-000000000001', 'b0000001-0000-0000-0000-000000000001', 'Investigate logs', 'done', 'engineer@example.com', 1, '2026-08-09T09:00:00Z', '2026-08-09T10:00:00Z'),
+  ('c0000001-0000-0000-0000-000000000002', 'b0000001-0000-0000-0000-000000000001', 'Identify root cause', 'done', 'engineer@example.com', 2, '2026-08-09T09:00:00Z', '2026-08-09T11:30:00Z'),
+  ('c0000001-0000-0000-0000-000000000003', 'b0000001-0000-0000-0000-000000000001', 'Submit fix PR #127', 'done', 'engineer@example.com', 3, '2026-08-09T09:00:00Z', '2026-08-09T15:00:00Z'),
+  ('c0000001-0000-0000-0000-000000000004', 'b0000001-0000-0000-0000-000000000001', 'Verify in next nightly', 'in_progress', 'engineer@example.com', 4, '2026-08-09T09:00:00Z', NULL);
 
 INSERT OR IGNORE INTO tasks (id, ticket_id, title, status, assignee, sort_order, created_at) VALUES
-  ('c0000001-0000-0000-0000-000000000005', 'b0000001-0000-0000-0000-000000000004', 'Check hostedcluster deletionTimestamp and capi-provider/control-plane-operator logs for errors', 'open', 'tfitzgerald@redhat.com', 1, '2026-08-10T01:30:00Z'),
+  ('c0000001-0000-0000-0000-000000000005', 'b0000001-0000-0000-0000-000000000004', 'Check hostedcluster deletionTimestamp and capi-provider/control-plane-operator logs for errors', 'open', 'engineer@example.com', 1, '2026-08-10T01:30:00Z'),
   ('c0000001-0000-0000-0000-000000000006', 'b0000001-0000-0000-0000-000000000004', 'Check for leaked EC2 instances blocking SG deletion (OCPBUGS-23362)', 'open', NULL, 2, '2026-08-10T01:30:00Z'),
   ('c0000001-0000-0000-0000-000000000007', 'b0000001-0000-0000-0000-000000000004', 'Check managedcluster Available status -- if Unknown, re-import or remove finalizers (ACM-11502)', 'open', NULL, 3, '2026-08-10T01:30:00Z'),
   ('c0000001-0000-0000-0000-000000000008', 'b0000001-0000-0000-0000-000000000004', 'Check for webhook blocking deletion (Kyverno/OPA) -- list and remove problematic webhooks (OHSS-41054)', 'open', NULL, 4, '2026-08-10T01:30:00Z'),
   ('c0000001-0000-0000-0000-000000000009', 'b0000001-0000-0000-0000-000000000004', 'Check route-monitor-operator RHOBS API connectivity (SDE-3443)', 'open', NULL, 5, '2026-08-10T01:30:00Z'),
-  ('c0000001-0000-0000-0000-000000000010', 'b0000001-0000-0000-0000-000000000004', 'Add automated SOP-based cleanup to e2e teardown in stolostron/rosa-hcp-e2e-test', 'open', 'tfitzgerald@redhat.com', 6, '2026-08-10T01:30:00Z'),
+  ('c0000001-0000-0000-0000-000000000010', 'b0000001-0000-0000-0000-000000000004', 'Add automated SOP-based cleanup to e2e teardown in stolostron/rosa-hcp-e2e-test', 'open', 'engineer@example.com', 6, '2026-08-10T01:30:00Z'),
   ('c0000001-0000-0000-0000-000000000011', 'b0000001-0000-0000-0000-000000000004', 'Submit fix PR to stolostron/rosa-hcp-e2e-test', 'open', NULL, 7, '2026-08-10T01:30:00Z');
 
 -- ============================================================
@@ -126,7 +126,7 @@ INSERT OR IGNORE INTO activities (id, activity_type, title, description, build_i
    '2026-08-09T09:01:00Z'),
 
   ('d0000001-0000-0000-0000-000000000004', 'fix_submitted', 'Fix PR #127 submitted for CAPI v1beta2 migration', 'PR updates 4.22 templates to use CAPI v1beta2 apiGroup refs.',
-   NULL, 'b0000001-0000-0000-0000-000000000001', 'tfitzgerald@redhat.com',
+   NULL, 'b0000001-0000-0000-0000-000000000001', 'engineer@example.com',
    '{"pr_url": "https://github.com/stolostron/rosa-hcp-e2e-test/pull/127", "pr_number": 127}',
    '2026-08-09T15:00:00Z'),
 
