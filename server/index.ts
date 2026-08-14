@@ -43,7 +43,8 @@ app.use('/api/rpc', rpcRouter);
 app.use('/api', tableRouter);
 
 // Serve static frontend in production
-const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+// __dirname is server/dist/ in production, so go up two levels to reach frontend/dist/
+const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 app.use(express.static(frontendDist));
 
 // SPA fallback: all non-API routes serve index.html
