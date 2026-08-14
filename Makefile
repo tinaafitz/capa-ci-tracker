@@ -37,9 +37,9 @@ db-reset:
 deploy: build
 	@echo "Build complete. Run 'make start' to start the production server."
 
-# Build container image with Podman
+# Build container image with Podman (docker format for HEALTHCHECK support)
 image:
-	podman build -t capa-ci-tracker:latest .
+	podman build --format docker -t capa-ci-tracker:latest .
 
 # Run container locally (mounts ./data for persistent SQLite)
 image-run:
