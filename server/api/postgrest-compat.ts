@@ -13,16 +13,7 @@
  */
 
 import type { Request } from 'express';
-
-// ---------------------------------------------------------------------------
-// JSON columns — must be parsed from strings when read from SQLite
-// ---------------------------------------------------------------------------
-
-const JSON_COLUMNS = new Set([
-  'parameters', 'test_failures', 'raw_payload', 'metadata',
-  'labels', 'phases', 'upstream_commits', 'error_lines',
-  'input_payload', 'output_payload',
-]);
+import { JSON_COLUMNS } from '../constants.js';
 
 function parseJsonValue(key: string, value: unknown): unknown {
   if (JSON_COLUMNS.has(key) && typeof value === 'string') {
@@ -419,8 +410,16 @@ export function parseRequest(req: Request, tableName: string): ParsedQuery {
   // HEAD request
   const isHead = req.method === 'HEAD';
 
-  // on_conflict
-  const onConflict = typeof query.on_conflict === 'string' ? query.on_conflict : null;
+  // on_conflict — validate each column name to prevent SQL injection
+  let onConflict: string | null = null;
+  if (typeof query.on_conflict === 'string') {
+    const rawCols = query.on_conflict.split(',').map(s => s.trim());
+    const allSafe = rawCols.every(col => isSafeIdentifier(col));
+    if (allSafe) {
+      onConflict = rawCols.join(', ');
+    }
+    // If any column fails validation, onConflict stays null (caller uses default)
+  }
 
   return {
     columns,

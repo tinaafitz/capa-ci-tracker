@@ -166,13 +166,14 @@ export async function run(): Promise<AgentResult> {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'cron', ?, 1, ?)
+    VALUES (?, ?, 'cron', ?, 0, ?)
   `).run(runId, AGENT_NAME, JSON.stringify({ api_url: PROW_API_URL }), startedAt);
 
   try {
     // Fetch ProwJobs from the public API
     const response = await fetch(PROW_API_URL, {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!response.ok) {
@@ -188,6 +189,7 @@ export async function run(): Promise<AgentResult> {
     const relevantJobs = prowJobs.filter((pj) =>
       isRelevantJob(pj.spec.job),
     );
+    skipped += prowJobs.length - relevantJobs.length;
 
     for (const prowJob of relevantJobs) {
       try {
@@ -211,6 +213,10 @@ export async function run(): Promise<AgentResult> {
 
         const now = new Date().toISOString();
         const buildId = uuidv4();
+
+        // Check if this build already exists (to avoid unnecessary triage re-invocations)
+        const existingBuild = getBuildIdStmt.get(externalId, jobName) as { id: string } | undefined;
+        const isNew = !existingBuild;
 
         // Upsert the build
         upsertBuildStmt.run(
@@ -240,16 +246,17 @@ export async function run(): Promise<AgentResult> {
         );
 
         // Resolve actual build id
-        const actualRow = getBuildIdStmt.get(externalId, jobName) as { id: string } | undefined;
-        const actualBuildId = actualRow?.id ?? buildId;
+        const actualBuildId = existingBuild?.id ?? buildId;
 
-        // Fire afterBuildInsert trigger
-        afterBuildInsert({
-          id: actualBuildId,
-          source: 'prow',
-          job_name: jobName,
-          status,
-        });
+        // Fire afterBuildInsert trigger only for genuinely new builds
+        if (isNew) {
+          afterBuildInsert({
+            id: actualBuildId,
+            source: 'prow',
+            job_name: jobName,
+            status,
+          });
+        }
 
         // Insert build_completed activity for finished builds (only if not already logged)
         if (prowJob.status.completionTime) {

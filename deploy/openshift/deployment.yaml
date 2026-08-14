@@ -47,7 +47,7 @@ spec:
               memory: 512Mi
           livenessProbe:
             httpGet:
-              path: /api/builds
+              path: /healthz
               port: 3001
             initialDelaySeconds: 15
             periodSeconds: 30
@@ -55,7 +55,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/builds
+              path: /healthz
               port: 3001
             initialDelaySeconds: 5
             periodSeconds: 10

@@ -21,11 +21,8 @@ WORKDIR /app
 # Copy built frontend static files
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Copy compiled server code
+# Copy compiled server code (includes dist/db/schema.sql from build step)
 COPY --from=server-builder /app/server/dist ./server/dist
-
-# Copy only schema.sql (seed.sql contains internal URLs and is not needed in production)
-COPY --from=server-builder /app/server/db/schema.sql ./server/db/schema.sql
 
 # Copy server package files for production dependency install
 COPY server/package*.json ./server/
@@ -43,6 +40,6 @@ EXPOSE 3001
 
 # Health check — verify the API responds
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD node -e "fetch('http://localhost:3001/api/builds').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://localhost:3001/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "server/dist/index.js"]

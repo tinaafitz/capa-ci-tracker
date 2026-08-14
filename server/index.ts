@@ -35,6 +35,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
+// Health check — before auth middleware so probes bypass API_KEY
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 
@@ -67,6 +72,12 @@ app.get('/{*splat}', (_req, res) => {
     }
   });
 });
+
+// Require API_KEY in production
+if (config.nodeEnv === 'production' && !config.apiKey) {
+  console.error('[server] FATAL: API_KEY must be set in production. Exiting.');
+  process.exit(1);
+}
 
 // Start server
 app.listen(config.port, () => {

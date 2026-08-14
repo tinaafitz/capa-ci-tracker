@@ -614,6 +614,7 @@ async function sendSlackNotification(
       unfurl_links: false,
       unfurl_media: false,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
@@ -677,7 +678,7 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'event', ?, 1, ?)
+    VALUES (?, ?, 'event', ?, 0, ?)
   `).run(runId, AGENT_NAME, JSON.stringify({ activity_id: activityId }), startedAt);
 
   try {

@@ -9,6 +9,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
+import { dbEvents } from '../triggers.js';
 import { KNOWN_ISSUES } from './known-issues.js';
 
 const AGENT_NAME = 'diagnosis';
@@ -130,7 +131,7 @@ export async function run(params: {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'triage-agent', ?, 1, ?)
+    VALUES (?, ?, 'triage-agent', ?, 0, ?)
   `).run(
     runId,
     AGENT_NAME,
@@ -187,8 +188,9 @@ export async function run(params: {
       }
 
       // Insert diagnosis_completed activity
+      const diagActivityId = uuidv4();
       insertActivityStmt.run(
-        uuidv4(),
+        diagActivityId,
         `Diagnosis completed: ${diagnosisResult.matched_pattern}`,
         `Root cause identified: ${diagnosisResult.root_cause}. Category: ${diagnosisResult.root_cause_category}.`,
         ticket_id,
@@ -203,10 +205,12 @@ export async function run(params: {
         }),
         now,
       );
+      dbEvents.emit('new_activity', { activity_id: diagActivityId, activity_type: 'diagnosis_completed' });
     } else {
       // No known pattern matched -- still record the attempt
+      const noMatchActivityId = uuidv4();
       insertActivityStmt.run(
-        uuidv4(),
+        noMatchActivityId,
         'Diagnosis completed: no known pattern matched',
         `Checked ${KNOWN_ISSUES.length} known issue patterns against ${testFailures.length} test failure(s). No match found -- manual investigation required.`,
         ticket_id,
@@ -218,6 +222,7 @@ export async function run(params: {
         }),
         now,
       );
+      dbEvents.emit('new_activity', { activity_id: noMatchActivityId, activity_type: 'diagnosis_completed' });
     }
 
     const outputPayload = {

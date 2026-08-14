@@ -20,6 +20,7 @@ import {
   setUpdatedAt,
 } from '../triggers.js';
 import { config } from '../config.js';
+import { JSON_COLUMNS } from '../constants.js';
 
 export const tableRouter = Router();
 
@@ -74,16 +75,6 @@ function validateColumns(tableName: string, columns: string[]): string | null {
   if (invalid.length > 0) return `Unknown column(s): ${invalid.join(', ')}`;
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Columns that store JSON (need special handling for INSERT/UPDATE)
-// ---------------------------------------------------------------------------
-
-const JSON_COLUMNS = new Set([
-  'parameters', 'test_failures', 'raw_payload', 'metadata',
-  'labels', 'phases', 'upstream_commits', 'error_lines',
-  'input_payload', 'output_payload',
-]);
 
 // ---------------------------------------------------------------------------
 // Columns with timestamps that should get auto-populated
@@ -305,7 +296,19 @@ function handleInsert(req: import('express').Request, res: import('express').Res
         let sql: string;
 
         if (parsed.isMergeDuplicates) {
-          const conflictCols = parsed.onConflict || UPSERT_CONFLICT[tableName];
+          let conflictCols = UPSERT_CONFLICT[tableName];
+          if (parsed.onConflict) {
+            // Validate client-supplied on_conflict columns against the table's known columns
+            const clientCols = parsed.onConflict.split(',').map(s => s.trim());
+            const allowed = TABLE_COLUMNS[tableName];
+            const invalidConflict = allowed ? clientCols.filter(c => !allowed.has(c)) : clientCols;
+            if (invalidConflict.length > 0) {
+              db.exec('ROLLBACK');
+              res.status(400).json({ message: `Invalid on_conflict column(s): ${invalidConflict.join(', ')}`, code: '400' });
+              return;
+            }
+            conflictCols = parsed.onConflict;
+          }
           if (conflictCols) {
             const conflictColList = conflictCols.split(',').map(s => s.trim());
             const updateCols = columns

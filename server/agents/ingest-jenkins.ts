@@ -6,6 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { Agent } from 'undici';
 import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
 
@@ -99,27 +100,20 @@ function extractOcpVersion(params: Record<string, string>): string | null {
 }
 
 /**
- * Fetch wrapper that temporarily disables TLS verification for Jenkins
- * self-signed certs, scoped to the individual request only.
+ * Fetch wrapper that disables TLS verification for Jenkins
+ * self-signed certs using a scoped undici Agent -- no global env mutation.
  */
+const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
+
 async function fetchJenkins(url: string, options: RequestInit = {}): Promise<Response> {
   if (process.env.JENKINS_SKIP_TLS === 'true') {
-    const prev = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    try {
-      return await fetch(url, options);
-    } finally {
-      if (prev === undefined) {
-        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-      } else {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = prev;
-      }
-    }
+    // Cast needed: Node's fetch accepts undici dispatcher but the type is not in RequestInit
+    return fetch(url, { ...options, dispatcher: insecureAgent } as RequestInit);
   }
   return fetch(url, options);
 }
 
-async function fetchJenkinsApi(baseUrl: string, path: string, user: string, token: string): Promise<unknown> {
+async function fetchJenkinsApi(baseUrl: string, path: string, user: string, token: string, timeoutMs = 30_000): Promise<unknown> {
   const url = `${baseUrl}${path}`;
   const credentials = Buffer.from(`${user}:${token}`).toString('base64');
 
@@ -128,6 +122,7 @@ async function fetchJenkinsApi(baseUrl: string, path: string, user: string, toke
       Authorization: `Basic ${credentials}`,
       Accept: 'application/json',
     },
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -149,6 +144,7 @@ async function fetchTestReport(
       `/${buildNumber}/testReport/api/json`,
       user,
       token,
+      60_000,  // 60s timeout for potentially large test reports
     )) as JenkinsTestReport;
     return report;
   } catch {
@@ -264,6 +260,10 @@ async function ingestJob(
       const now = new Date().toISOString();
       const buildId = uuidv4();
 
+      // Check if this build already exists (to avoid unnecessary triage re-invocations)
+      const existingBuild = getBuildIdStmt.get(String(build.number), jobName) as { id: string } | undefined;
+      const isNew = !existingBuild;
+
       // Upsert the build
       upsertBuildStmt.run(
         buildId,
@@ -287,17 +287,18 @@ async function ingestJob(
         now,
       );
 
-      // Resolve actual build id (may differ if ON CONFLICT matched existing row)
-      const actualRow = getBuildIdStmt.get(String(build.number), jobName) as { id: string } | undefined;
-      const actualBuildId = actualRow?.id ?? buildId;
+      // Resolve actual build id
+      const actualBuildId = existingBuild?.id ?? buildId;
 
-      // Fire afterBuildInsert trigger
-      afterBuildInsert({
-        id: actualBuildId,
-        source: 'jenkins',
-        job_name: jobName,
-        status,
-      });
+      // Fire afterBuildInsert trigger only for genuinely new builds
+      if (isNew) {
+        afterBuildInsert({
+          id: actualBuildId,
+          source: 'jenkins',
+          job_name: jobName,
+          status,
+        });
+      }
 
       // Insert build_completed activity for finished builds (only if not already logged)
       if (build.result) {
@@ -347,7 +348,7 @@ export async function run(): Promise<AgentResult> {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'cron', ?, 1, ?)
+    VALUES (?, ?, 'cron', ?, 0, ?)
   `).run(runId, AGENT_NAME, JSON.stringify({ jobs: JENKINS_JOBS }), startedAt);
 
   try {

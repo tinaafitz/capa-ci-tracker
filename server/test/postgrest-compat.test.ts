@@ -474,7 +474,7 @@ describe('parseRequest', () => {
       });
       const parsed = parseRequest(req, 'builds');
 
-      expect(parsed.onConflict).toBe('source,external_id,job_name');
+      expect(parsed.onConflict).toBe('source, external_id, job_name');
     });
 
     it('defaults to null when absent', () => {

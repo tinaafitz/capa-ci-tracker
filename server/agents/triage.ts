@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
+import { dbEvents } from '../triggers.js';
 import { run as runDiagnosis } from './diagnosis.js';
 
 const AGENT_NAME = 'triage';
@@ -205,8 +206,9 @@ async function triageBuild(buildId: string): Promise<{
   if (existing) {
     // Link build to existing ticket via activity
     const now = new Date().toISOString();
+    const dedupActivityId = uuidv4();
     insertActivityStmt.run(
-      uuidv4(),
+      dedupActivityId,
       'build_completed',
       `Recurring failure linked to ticket #${existing.ticket_number}`,
       `Build ${build.job_name} #${build.external_id} failed with same error signature. Linked to existing ticket.`,
@@ -219,6 +221,7 @@ async function triageBuild(buildId: string): Promise<{
       }),
       now,
     );
+    dbEvents.emit('new_activity', { activity_id: dedupActivityId, activity_type: 'build_completed' });
 
     return {
       action: 'linked',
@@ -228,7 +231,7 @@ async function triageBuild(buildId: string): Promise<{
     };
   }
 
-  // 3. No existing ticket -- create a new one
+  // 3. No existing ticket -- create a new one (wrapped in transaction)
   const severity = classifySeverity(build, testFailures);
   const firstFailure = testFailures[0];
   const title = firstFailure
@@ -247,46 +250,60 @@ async function triageBuild(buildId: string): Promise<{
     ].filter(Boolean),
   );
 
-  insertTicketStmt.run(
-    newTicketId,
-    title,
-    description,
-    severity,
-    build.id,
-    errorSignature,
-    labels,
-    now,
-    now,
-  );
+  let ticketNumber = 0;
+  const ticketCreatedActivityId = uuidv4();
 
-  // Re-fetch to get the auto-assigned ticket_number
-  const newTicket = getTicketStmt.get(newTicketId) as
-    | { id: string; ticket_number: number }
-    | undefined;
+  db.exec('BEGIN');
+  try {
+    insertTicketStmt.run(
+      newTicketId,
+      title,
+      description,
+      severity,
+      build.id,
+      errorSignature,
+      labels,
+      now,
+      now,
+    );
 
-  const ticketNumber = newTicket?.ticket_number ?? 0;
+    // Re-fetch to get the auto-assigned ticket_number
+    const newTicket = getTicketStmt.get(newTicketId) as
+      | { id: string; ticket_number: number }
+      | undefined;
 
-  // 4. Create default tasks
-  for (const task of DEFAULT_TASKS) {
-    insertTaskStmt.run(uuidv4(), newTicketId, task.title, task.sort_order, now);
+    ticketNumber = newTicket?.ticket_number ?? 0;
+
+    // 4. Create default tasks
+    for (const task of DEFAULT_TASKS) {
+      insertTaskStmt.run(uuidv4(), newTicketId, task.title, task.sort_order, now);
+    }
+
+    // 5. Insert ticket_created activity
+    insertActivityStmt.run(
+      ticketCreatedActivityId,
+      'ticket_created',
+      `Ticket #${ticketNumber} created: ${title}`,
+      `Auto-created by triage agent. Severity: ${severity}. Error signature: ${errorSignature}`,
+      newTicketId,
+      build.id,
+      'triage-agent',
+      JSON.stringify({
+        severity,
+        error_signature: errorSignature,
+        auto_created: true,
+      }),
+      now,
+    );
+
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
 
-  // 5. Insert ticket_created activity
-  insertActivityStmt.run(
-    uuidv4(),
-    'ticket_created',
-    `Ticket #${ticketNumber} created: ${title}`,
-    `Auto-created by triage agent. Severity: ${severity}. Error signature: ${errorSignature}`,
-    newTicketId,
-    build.id,
-    'triage-agent',
-    JSON.stringify({
-      severity,
-      error_signature: errorSignature,
-      auto_created: true,
-    }),
-    now,
-  );
+  // Emit after successful commit (outside transaction)
+  dbEvents.emit('new_activity', { activity_id: ticketCreatedActivityId, activity_type: 'ticket_created' });
 
   // 6. Invoke diagnosis agent -- direct function call instead of HTTP
   try {
@@ -321,7 +338,7 @@ export async function run(params: { build_id: string }): Promise<AgentResult> {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'event', ?, 1, ?)
+    VALUES (?, ?, 'event', ?, 0, ?)
   `).run(runId, AGENT_NAME, JSON.stringify({ build_id }), startedAt);
 
   try {

@@ -10,6 +10,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
+import { beforeTicketUpdate, dbEvents } from '../triggers.js';
 
 const AGENT_NAME = 'resolution-tracker';
 
@@ -62,10 +63,8 @@ const getFixInProgressTicketsStmt = db.prepare(`
   WHERE status = 'fix_in_progress' AND fix_pr_url IS NOT NULL
 `);
 
-const updateTicketResolvedStmt = db.prepare(`
-  UPDATE support_tickets
-  SET status = 'resolved', pr_merged_at = ?, resolved_at = ?, updated_at = ?
-  WHERE id = ?
+const getTicketByIdStmt = db.prepare(`
+  SELECT * FROM support_tickets WHERE id = ?
 `);
 
 const insertActivityStmt = db.prepare(`
@@ -87,11 +86,18 @@ const getSuccessBuildsStmt = db.prepare(`
   LIMIT 10
 `);
 
-const updateTicketVerifiedStmt = db.prepare(`
-  UPDATE support_tickets
-  SET status = 'verified', verified_in_build_id = ?, verified_at = ?, updated_at = ?
-  WHERE id = ?
-`);
+/** Dynamically build and run an UPDATE for support_tickets with the given fields. */
+function updateTicketDynamic(ticketId: string, data: Record<string, unknown>): void {
+  const entries = Object.entries(data);
+  if (entries.length === 0) return;
+  const setClauses = entries.map(([key]) => `"${key}" = ?`).join(', ');
+  const values = entries.map(([, v]) => {
+    if (v === null) return null;
+    if (typeof v === 'object') return JSON.stringify(v);
+    return v;
+  });
+  db.prepare(`UPDATE support_tickets SET ${setClauses} WHERE id = ?`).run(...(values as (string | number | null)[]), ticketId);
+}
 
 // ============================================================
 // GitHub PR URL parser
@@ -124,6 +130,7 @@ async function checkPrStatus(
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
     },
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
@@ -157,7 +164,7 @@ export async function run(): Promise<AgentResult> {
 
   db.prepare(`
     INSERT INTO agent_runs (id, agent_name, trigger_source, input_payload, success, created_at)
-    VALUES (?, ?, 'cron', '{}', 1, ?)
+    VALUES (?, ?, 'cron', '{}', 0, ?)
   `).run(runId, AGENT_NAME, startedAt);
 
   try {
@@ -189,12 +196,25 @@ export async function run(): Promise<AgentResult> {
         if (pr.merged) {
           const now = new Date().toISOString();
 
-          // PR is merged -- advance ticket to 'resolved'
-          updateTicketResolvedStmt.run(pr.merged_at, now, now, ticket.id);
+          // Use beforeTicketUpdate to handle status-change activity + timestamps
+          const oldTicket = getTicketByIdStmt.get(ticket.id) as Record<string, unknown> | undefined;
+          const newData: Record<string, unknown> = {
+            status: 'resolved',
+            pr_merged_at: pr.merged_at,
+            updated_at: now,
+          };
 
-          // Insert fix_merged activity
+          if (oldTicket) {
+            beforeTicketUpdate(oldTicket, newData);
+          }
+
+          // Apply the update (beforeTicketUpdate may have added resolved_at)
+          updateTicketDynamic(ticket.id, newData);
+
+          // Insert fix_merged activity (separate from the status-change activity)
+          const fixMergedActivityId = uuidv4();
           insertActivityStmt.run(
-            uuidv4(),
+            fixMergedActivityId,
             'fix_merged',
             `Fix PR merged for ticket #${ticket.ticket_number}`,
             `PR #${pr.number} "${pr.title}" by ${pr.user.login} was merged into ${pr.base.ref} at ${pr.merged_at}. Ticket status advanced to resolved.`,
@@ -211,6 +231,7 @@ export async function run(): Promise<AgentResult> {
             }),
             now,
           );
+          dbEvents.emit('new_activity', { activity_id: fixMergedActivityId, activity_type: 'fix_merged' });
 
           resolvedCount++;
         }
@@ -260,11 +281,25 @@ export async function run(): Promise<AgentResult> {
         if (verifyingBuild) {
           const now = new Date().toISOString();
 
-          updateTicketVerifiedStmt.run(verifyingBuild.id, now, now, ticket.id);
+          // Use beforeTicketUpdate to handle status-change activity + timestamps
+          const oldTicket = getTicketByIdStmt.get(ticket.id) as Record<string, unknown> | undefined;
+          const newData: Record<string, unknown> = {
+            status: 'verified',
+            verified_in_build_id: verifyingBuild.id,
+            updated_at: now,
+          };
 
-          // Log verification activity
+          if (oldTicket) {
+            beforeTicketUpdate(oldTicket, newData);
+          }
+
+          // Apply the update (beforeTicketUpdate may have added verified_at)
+          updateTicketDynamic(ticket.id, newData);
+
+          // Log verification detail activity
+          const verifyActivityId = uuidv4();
           insertActivityStmt.run(
-            uuidv4(),
+            verifyActivityId,
             'ticket_updated',
             `Ticket #${ticket.ticket_number} auto-verified`,
             `Build ${verifyingBuild.job_name} (started ${verifyingBuild.started_at}) passed without the error signature "${ticket.error_signature}". Ticket auto-advanced from resolved to verified.`,
@@ -277,6 +312,7 @@ export async function run(): Promise<AgentResult> {
             }),
             now,
           );
+          dbEvents.emit('new_activity', { activity_id: verifyActivityId, activity_type: 'ticket_updated' });
 
           verifiedCount++;
         }

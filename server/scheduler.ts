@@ -55,34 +55,66 @@ function buildLogsCleanup(): void {
 export function startScheduler(): void {
   if (config.nodeEnv === 'test') return;
 
+  // Overlap guards — prevent concurrent runs of the same agent
+  let jenkinsRunning = false;
+  let prowRunning = false;
+  let resolutionRunning = false;
+
   // ingest-jenkins: every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
-    console.log('[cron] ingest-jenkins starting');
-    const result = await ingestJenkins().catch(err => ({
-      success: false,
-      message: err instanceof Error ? err.message : String(err),
-    }));
-    console.log(`[cron] ingest-jenkins done: ${result.success ? 'ok' : result.message}`);
+    if (jenkinsRunning) {
+      console.log('[cron] ingest-jenkins already running, skipping');
+      return;
+    }
+    jenkinsRunning = true;
+    try {
+      console.log('[cron] ingest-jenkins starting');
+      const result = await ingestJenkins().catch(err => ({
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      }));
+      console.log(`[cron] ingest-jenkins done: ${result.success ? 'ok' : result.message}`);
+    } finally {
+      jenkinsRunning = false;
+    }
   });
 
   // ingest-prow: every 5 minutes, offset by 2 minutes (matches pg_cron '2-59/5')
   cron.schedule('2-59/5 * * * *', async () => {
-    console.log('[cron] ingest-prow starting');
-    const result = await ingestProw().catch(err => ({
-      success: false,
-      message: err instanceof Error ? err.message : String(err),
-    }));
-    console.log(`[cron] ingest-prow done: ${result.success ? 'ok' : result.message}`);
+    if (prowRunning) {
+      console.log('[cron] ingest-prow already running, skipping');
+      return;
+    }
+    prowRunning = true;
+    try {
+      console.log('[cron] ingest-prow starting');
+      const result = await ingestProw().catch(err => ({
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      }));
+      console.log(`[cron] ingest-prow done: ${result.success ? 'ok' : result.message}`);
+    } finally {
+      prowRunning = false;
+    }
   });
 
   // resolution-tracker: every 15 minutes
   cron.schedule('*/15 * * * *', async () => {
-    console.log('[cron] resolution-tracker starting');
-    const result = await resolutionTracker().catch(err => ({
-      success: false,
-      message: err instanceof Error ? err.message : String(err),
-    }));
-    console.log(`[cron] resolution-tracker done: ${result.success ? 'ok' : result.message}`);
+    if (resolutionRunning) {
+      console.log('[cron] resolution-tracker already running, skipping');
+      return;
+    }
+    resolutionRunning = true;
+    try {
+      console.log('[cron] resolution-tracker starting');
+      const result = await resolutionTracker().catch(err => ({
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      }));
+      console.log(`[cron] resolution-tracker done: ${result.success ? 'ok' : result.message}`);
+    } finally {
+      resolutionRunning = false;
+    }
   });
 
   // retention cleanup: daily at 03:00 UTC
