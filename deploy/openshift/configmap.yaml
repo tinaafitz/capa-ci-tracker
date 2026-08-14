@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: capa-ci-tracker-config
+  namespace: capa-ci-tracker
+  labels:
+    app.kubernetes.io/name: capa-ci-tracker
+    app.kubernetes.io/part-of: capa-ci-tracker
+data:
+  NODE_ENV: production
+  PORT: "3001"
+  DB_PATH: /data/capa-ci-tracker.db
