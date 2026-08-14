@@ -1,4 +1,4 @@
-.PHONY: dev build start install seed db-reset deploy lint
+.PHONY: dev build start install seed db-reset deploy lint image image-run
 
 # Development: start both servers concurrently
 dev:
@@ -36,3 +36,14 @@ db-reset:
 # Deploy (build + start — for simple deployments)
 deploy: build
 	@echo "Build complete. Run 'make start' to start the production server."
+
+# Build container image with Podman
+image:
+	podman build -t capa-ci-tracker:latest .
+
+# Run container locally (mounts ./data for persistent SQLite)
+image-run:
+	mkdir -p data
+	podman run --rm -p 3001:3001 -v ./data:/data:Z \
+		-e NODE_ENV=production \
+		capa-ci-tracker:latest
