@@ -189,7 +189,7 @@ describe('triage agent dedup', () => {
     expect(first.action).toBe('created');
 
     // Manually resolve the ticket
-    testDb.prepare("UPDATE support_tickets SET status = 'resolved' WHERE id = ?").run(first.ticketId);
+    testDb.prepare("UPDATE support_tickets SET status = 'resolved' WHERE id = ?").run(first.ticketId!);
 
     // Second build with same signature should create a new ticket
     const second = await runTriage({ build_id: 'build-2' });
@@ -206,7 +206,7 @@ describe('triage agent dedup', () => {
     insertBuild('build-2', TEST_FAILURE, { external_id: 'build-2' });
 
     const first = await runTriage({ build_id: 'build-1' });
-    testDb.prepare("UPDATE support_tickets SET status = 'verified' WHERE id = ?").run(first.ticketId);
+    testDb.prepare("UPDATE support_tickets SET status = 'verified' WHERE id = ?").run(first.ticketId!);
 
     const second = await runTriage({ build_id: 'build-2' });
     expect(second.action).toBe('created');
