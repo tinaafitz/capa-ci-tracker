@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts",
-    "build": "tsc",
+    "build": "tsc && cp -r db/*.sql dist/db/",
     "start": "node dist/index.js",
     "seed": "tsx seed-runner.ts",
     "migrate": "tsx scripts/migrate-from-postgres.ts",

@@ -60,8 +60,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Run tests
+        run: npm test
+
       - name: Verify server starts and responds
         run: |
+          npm run seed
           node dist/index.js &
           SERVER_PID=$!
           # Wait for server to be ready
