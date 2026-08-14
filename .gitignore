@@ -5,6 +5,9 @@ dist/
 .env.*.local
 .DS_Store
 *.log
-.supabase/
-supabase/.temp/
 .claude/
+
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
