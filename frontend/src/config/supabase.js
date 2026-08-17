@@ -168,6 +168,9 @@ class PostgRESTFilterBuilder {
   maybeSingle() {
     this._isMaybeSingle = true
     this._headers['Accept'] = 'application/vnd.pgrst.object+json'
+    this._headers['Prefer'] = this._headers['Prefer']
+      ? `${this._headers['Prefer']}, missing=default`
+      : 'missing=default'
     return this
   }
 

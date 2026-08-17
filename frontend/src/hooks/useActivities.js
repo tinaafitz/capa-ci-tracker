@@ -64,7 +64,7 @@ export function useActivities(filterOptions = {}) {
     orderBy: 'created_at',
     ascending: false,
     limit,
-    select: '*, support_tickets:ticket_id(id, ticket_number, title, status), builds:build_id(id, external_id, job_name, status)',
+    select: '*, support_tickets:ticket_id(id, ticket_number, title, status, assignee), builds:build_id(id, external_id, job_name, status)',
     realtime: true,
     realtimeTable: 'activities',
   })

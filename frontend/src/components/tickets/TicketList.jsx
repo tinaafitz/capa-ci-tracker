@@ -50,6 +50,11 @@ const severityOptions = [
   { value: 'upstream_breakage', label: 'Upstream Breakage' },
 ]
 
+const assigneeOptions = [
+  { value: 'all', label: 'All Assignees' },
+  { value: 'unassigned', label: 'Unassigned' },
+]
+
 export function TicketList({
   tickets,
   loading,
@@ -196,6 +201,13 @@ export function TicketList({
           className="w-44 h-8"
         />
 
+        <FilterSelect
+          value={filters.assignee || 'all'}
+          onValueChange={(v) => onFiltersChange({ ...filters, assignee: v })}
+          options={assigneeOptions}
+          className="w-40 h-8"
+        />
+
         <Input
           placeholder="Search tickets..."
           value={filters.search}
@@ -282,6 +294,7 @@ export function TicketList({
                     actionLabel="Clear filters"
                     onAction={() =>
                       onFiltersChange({
+                        ...filters,
                         status: 'open',
                         severity: 'all',
                         assignee: 'all',

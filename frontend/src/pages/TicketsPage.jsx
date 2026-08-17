@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { TicketList } from '@/components/tickets/TicketList'
 import { TicketKanban } from '@/components/tickets/TicketKanban'
@@ -7,6 +7,7 @@ import { TicketDetail } from '@/components/tickets/TicketDetail'
 import { TicketCreateModal } from '@/components/tickets/TicketCreateModal'
 import { useTickets } from '@/hooks/useTickets'
 import { useAppState, useAppActions } from '@/store/AppContext'
+import { supabase } from '@/config/supabase'
 
 /**
  * Icon for the table/list view toggle button.
@@ -52,10 +53,14 @@ function KanbanViewIcon({ className }) {
 
 export function TicketsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { id: ticketIdParam } = useParams()
   const { selectedTicket, ticketDetailOpen } = useAppState()
   const { selectTicket, closeTicketDetail } = useAppActions()
 
-  const [viewMode, setViewMode] = useState('kanban') // 'kanban' | 'table'
+  const initialAssignee = searchParams.get('assignee')
+  const [viewMode, setViewMode] = useState(
+    initialAssignee === 'unassigned' ? 'table' : 'kanban'
+  ) // 'kanban' | 'table'
   const [kanbanFilters, setKanbanFilters] = useState({
     status: 'all',
     severity: 'all',
@@ -63,9 +68,9 @@ export function TicketsPage() {
     search: '',
   })
   const [tableFilters, setTableFilters] = useState({
-    status: 'open',
+    status: initialAssignee === 'unassigned' ? 'all' : 'open',
     severity: 'all',
-    assignee: 'all',
+    assignee: initialAssignee === 'unassigned' ? 'unassigned' : 'all',
     search: '',
   })
   const filters = viewMode === 'kanban' ? kanbanFilters : tableFilters
@@ -77,6 +82,33 @@ export function TicketsPage() {
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
       setCreateModalOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  // Handle /tickets/:id deep link (e.g. from a build's linked-ticket card).
+  useEffect(() => {
+    if (!ticketIdParam) return
+    if (selectedTicket?.id === ticketIdParam) return
+    let cancelled = false
+    supabase
+      .from('v_ticket_summary')
+      .select('*')
+      .eq('id', ticketIdParam)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled && data) selectTicket(data)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ticketIdParam, selectedTicket?.id, selectTicket])
+
+  // Handle ?assignee=unassigned deep link (e.g. from the Activity triage banner).
+  // The initial state already reflects it; consume the param so it doesn't stick.
+  useEffect(() => {
+    if (searchParams.get('assignee') === 'unassigned') {
       setSearchParams({}, { replace: true })
     }
   }, [searchParams, setSearchParams])

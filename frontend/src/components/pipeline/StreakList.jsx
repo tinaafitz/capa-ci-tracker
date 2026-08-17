@@ -1,4 +1,5 @@
-import { Fragment, useState, useMemo } from 'react'
+import { Fragment, useState, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   useLegacyTable as useReactTable,
   getCoreRowModel,
@@ -14,9 +15,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StreakDetail, StreakStatusBadge } from './StreakDetail'
 import { useStreaks } from '@/hooks/useStreaks'
+import { supabase } from '@/config/supabase'
+
+// Sort priority for streak statuses: active first, then partial_fix, then resolved.
+const STATUS_ORDER = { active: 0, partial_fix: 1, resolved: 2 }
 
 function SortIcon({ direction }) {
   if (direction === 'asc') {
@@ -50,8 +56,12 @@ function formatDate(timestamp) {
 
 export function StreakList() {
   const { data: streaks, loading, error } = useStreaks()
-  const [sorting, setSorting] = useState([{ id: 'started_at', desc: false }])
+  const [sorting, setSorting] = useState([])
   const [expandedRows, setExpandedRows] = useState({})
+  const navigate = useNavigate()
+
+  // Map of streak_id -> originating ticket { id, ticket_number }.
+  const [ticketsByStreak, setTicketsByStreak] = useState({})
 
   const toggleRow = (streakId) => {
     setExpandedRows((prev) => ({
@@ -59,6 +69,56 @@ export function StreakList() {
       [streakId]: !prev[streakId],
     }))
   }
+
+  // Streaks pre-sorted by status priority (active -> partial_fix -> resolved),
+  // then by most recent start. Used as the table's default order.
+  const sortedStreaks = useMemo(() => {
+    const rows = streaks || []
+    return [...rows].sort((a, b) => {
+      const sa = STATUS_ORDER[a.status] ?? 99
+      const sb = STATUS_ORDER[b.status] ?? 99
+      if (sa !== sb) return sa - sb
+      return new Date(b.started_at || 0) - new Date(a.started_at || 0)
+    })
+  }, [streaks])
+
+  // Job names that appear in more than one streak row -> "Recurring".
+  const recurringJobs = useMemo(() => {
+    const counts = {}
+    for (const s of streaks || []) {
+      if (!s.job_name) continue
+      counts[s.job_name] = (counts[s.job_name] || 0) + 1
+    }
+    return new Set(Object.keys(counts).filter((j) => counts[j] > 1))
+  }, [streaks])
+
+  // Fetch originating tickets for the visible streaks in a single query.
+  useEffect(() => {
+    const ids = (streaks || []).map((s) => s.id).filter(Boolean)
+    if (!ids.length) {
+      setTicketsByStreak({})
+      return
+    }
+    let cancelled = false
+    supabase
+      .from('support_tickets')
+      .select('id,ticket_number,streak_id')
+      .in('streak_id', ids)
+      .then(({ data }) => {
+        if (cancelled || !data) return
+        const map = {}
+        for (const t of data) {
+          // Keep the first (lowest ticket_number) per streak.
+          if (!map[t.streak_id] || t.ticket_number < map[t.streak_id].ticket_number) {
+            map[t.streak_id] = { id: t.id, ticket_number: t.ticket_number }
+          }
+        }
+        setTicketsByStreak(map)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [streaks])
 
   const columns = useMemo(
     () => [
@@ -94,13 +154,46 @@ export function StreakList() {
         id: 'job_name',
         accessorKey: 'job_name',
         header: 'Job',
-        size: 400,
+        size: 360,
         meta: { cellClassName: 'whitespace-normal' },
         cell: ({ row }) => (
-          <span className="font-mono text-xs text-foreground break-all whitespace-normal">
-            {row.original.job_name}
-          </span>
+          <div className="flex items-start gap-1.5 flex-wrap">
+            <span className="font-mono text-xs text-foreground break-all whitespace-normal">
+              {row.original.job_name}
+            </span>
+            {recurringJobs.has(row.original.job_name) && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700"
+                title="This job appears in multiple failure streaks"
+              >
+                Recurring
+              </Badge>
+            )}
+          </div>
         ),
+      },
+      {
+        id: 'ticket',
+        header: 'Ticket',
+        size: 90,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const ticket = ticketsByStreak[row.original.id]
+          if (!ticket) return <span className="text-xs text-muted-foreground/40">--</span>
+          return (
+            <button
+              className="inline-flex items-center rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] font-medium text-foreground hover:bg-muted transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate(`/tickets/${ticket.id}`)
+              }}
+              title="Open originating ticket"
+            >
+              CAPA-{ticket.ticket_number}
+            </button>
+          )
+        },
       },
       {
         id: 'streak_length',
@@ -159,11 +252,11 @@ export function StreakList() {
         },
       },
     ],
-    [expandedRows]
+    [expandedRows, recurringJobs, ticketsByStreak, navigate]
   )
 
   const table = useReactTable({
-    data: streaks || [],
+    data: sortedStreaks,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -203,6 +296,7 @@ export function StreakList() {
     )
   }
 
+  // Zero streaks at all: show the explanatory empty state.
   if (!streaks?.length) {
     return (
       <EmptyState
@@ -213,6 +307,33 @@ export function StreakList() {
   }
 
   const activeCount = streaks.filter((s) => s.status === 'active').length
+
+  // Streaks exist but none are active: reassuring "all passing" state.
+  if (activeCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-border py-16 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-950/50">
+          <svg
+            className="h-6 w-6 text-green-600 dark:text-green-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        </div>
+        <h3 className="mt-4 text-sm font-medium text-foreground">
+          No active failure streaks — all jobs passing
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {streaks.length} past streak{streaks.length !== 1 ? 's' : ''} on record, all resolved.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">

@@ -10,6 +10,43 @@ import {
 } from 'recharts'
 import { Skeleton } from '@/components/ui/skeleton'
 
+const SERIES = [
+  { key: 'fail', label: 'Fail', color: '#ef4444' },
+  { key: 'pass', label: 'Pass', color: '#22c55e' },
+  { key: 'skip', label: 'Skip', color: '#9ca3af' },
+]
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload || payload.length === 0) return null
+
+  const row = payload[0]?.payload || {}
+  const dateLabel = new Date(label).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
+  return (
+    <div className="rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-md">
+      <div className="mb-1 font-medium text-foreground">{dateLabel}</div>
+      {SERIES.map((s) => (
+        <div key={s.key} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: s.color }}
+            />
+            <span className="text-muted-foreground">{s.label}</span>
+          </span>
+          <span className="font-mono tabular-nums text-foreground">
+            {row[s.key] ?? 0}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function BuildTrendChart({ data, loading }) {
   if (loading) {
     return (
@@ -50,19 +87,8 @@ export function BuildTrendChart({ data, loading }) {
           />
           <YAxis className="text-xs" tick={{ fontSize: 11 }} />
           <Tooltip
-            contentStyle={{
-              backgroundColor: 'hsl(var(--popover))',
-              border: '1px solid hsl(var(--border))',
-              borderRadius: '6px',
-              fontSize: '12px',
-            }}
-            labelFormatter={(date) =>
-              new Date(date).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })
-            }
+            content={<ChartTooltip />}
+            cursor={{ fill: 'rgba(148, 163, 184, 0.15)' }}
           />
           <Legend
             iconSize={10}

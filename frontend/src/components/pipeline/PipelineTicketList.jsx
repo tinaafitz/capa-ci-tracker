@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   useLegacyTable as useReactTable,
   getCoreRowModel,
@@ -14,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { SeverityBadge } from '@/components/tickets/SeverityBadge'
 import { TicketPipelineStepper } from '@/components/tickets/TicketPipelineStepper'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -38,12 +41,43 @@ const STAGE_STYLES = {
   6: 'bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800',
 }
 
-function formatDuration(seconds) {
-  if (seconds == null || isNaN(seconds)) return '--'
+// Format an elapsed number of seconds into a compact "Xd Yh" / "Xh Ym" / "Ym" / "<1m" string.
+function formatElapsedSeconds(seconds) {
+  if (seconds == null || isNaN(seconds) || seconds < 0) return '--'
   if (seconds < 60) return '<1m'
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
-  if (seconds < 86400) return `${(seconds / 3600).toFixed(1)}h`
-  return `${(seconds / 86400).toFixed(1)}d`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    return m > 0 ? `${h}h ${m}m` : `${h}h`
+  }
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  return h > 0 ? `${d}d ${h}h` : `${d}d`
+}
+
+// Compute the duration to display for a ticket row.
+// Verified tickets show their total lifecycle; in-flight tickets show live elapsed
+// time from the build failure (or ticket creation) up to `now`.
+function formatElapsed(row, now) {
+  if (row.total_lifecycle_seconds != null && !isNaN(row.total_lifecycle_seconds)) {
+    return formatElapsedSeconds(row.total_lifecycle_seconds)
+  }
+  const startRaw = row.build_failed_at || row.ticket_created_at || row.created_at
+  if (!startRaw) return '--'
+  const start = new Date(startRaw).getTime()
+  if (isNaN(start)) return '--'
+  return formatElapsedSeconds(Math.floor((now - start) / 1000))
+}
+
+// Days a ticket has been sitting in its current stage. Uses updated_at when
+// available, otherwise falls back to created_at.
+function stageAgeDays(row, now) {
+  const raw = row.updated_at || row.ticket_created_at || row.created_at
+  if (!raw) return 0
+  const t = new Date(raw).getTime()
+  if (isNaN(t)) return 0
+  return (now - t) / 86400000
 }
 
 function SortIcon({ direction }) {
@@ -71,6 +105,14 @@ function SortIcon({ direction }) {
 
 export function PipelineTicketList({ tickets, loading, onTicketClick }) {
   const [sorting, setSorting] = useState([{ id: 'pipeline_stage', desc: false }])
+  const navigate = useNavigate()
+
+  // Live clock: re-render every 60s so in-flight durations tick.
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(id)
+  }, [])
 
   const columns = useMemo(
     () => [
@@ -109,10 +151,24 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
         cell: ({ row }) => {
           const stage = row.original.pipeline_stage
           const style = STAGE_STYLES[stage] || ''
+          const isVerified = stage === 6
+          const days = stageAgeDays(row.original, now)
+          const stuck = !isVerified && days > 3
           return (
-            <Badge variant="outline" className={`text-[11px] whitespace-nowrap font-medium ${style}`}>
-              {STAGE_NAMES[stage] || 'Unknown'}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className={`text-[11px] whitespace-nowrap font-medium ${style}`}>
+                {STAGE_NAMES[stage] || 'Unknown'}
+              </Badge>
+              {stuck && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] whitespace-nowrap font-medium bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-700"
+                  title={`In this stage for ${Math.floor(days)} days`}
+                >
+                  Stuck {Math.floor(days)}d
+                </Badge>
+              )}
+            </div>
           )
         },
       },
@@ -142,7 +198,7 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
         size: 80,
         cell: ({ row }) => (
           <span className="text-sm text-muted-foreground tabular-nums font-mono">
-            {formatDuration(row.original.total_lifecycle_seconds)}
+            {formatElapsed(row.original, now)}
           </span>
         ),
       },
@@ -166,8 +222,71 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
           )
         },
       },
+      {
+        id: 'quick_actions',
+        header: '',
+        size: 40,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const t = row.original
+          const capaId = `CAPA-${t.ticket_number}`
+          const buildUrl = t.build_job_url
+          const stop = (e) => e.stopPropagation()
+          return (
+            // Actions overlay: hidden until the row is hovered.
+            <div
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-muted/40 backdrop-blur-sm rounded-md px-0.5"
+              onClick={stop}
+            >
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={`Copy ${capaId}`}
+                onClick={(e) => {
+                  stop(e)
+                  navigator.clipboard.writeText(capaId)
+                  toast.success(`Copied ${capaId}`)
+                }}
+              >
+                <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="5" y="5" width="8" height="8" rx="1.5" />
+                  <path d="M3 11V3.5A.5.5 0 013.5 3H11" />
+                </svg>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title="Open ticket"
+                onClick={(e) => {
+                  stop(e)
+                  navigate(`/tickets/${t.id}`)
+                }}
+              >
+                <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 3H3.5A.5.5 0 003 3.5V12.5a.5.5 0 00.5.5h9a.5.5 0 00.5-.5V10" />
+                  <path d="M9 3h4v4M13 3L7 9" />
+                </svg>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={buildUrl ? 'Open latest build' : 'No build URL'}
+                disabled={!buildUrl}
+                onClick={(e) => {
+                  stop(e)
+                  if (buildUrl) window.open(buildUrl, '_blank')
+                }}
+              >
+                <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 4.5h12M2 8h12M2 11.5h12" />
+                </svg>
+              </Button>
+            </div>
+          )
+        },
+      },
     ],
-    []
+    [now, navigate]
   )
 
   const table = useReactTable({
@@ -244,7 +363,7 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
           {table.getRowModel().rows.map((row) => (
             <TableRow
               key={row.id}
-              className="cursor-pointer hover:bg-muted/40 transition-colors h-11"
+              className="group relative cursor-pointer hover:bg-muted/40 transition-colors h-11"
               onClick={() => onTicketClick?.(row.original)}
             >
               {row.getVisibleCells().map((cell) => (

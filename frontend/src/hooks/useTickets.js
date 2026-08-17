@@ -38,7 +38,9 @@ export function useTickets(filterOptions = {}) {
       f.severity = severity
     }
 
-    if (assignee !== 'all') {
+    if (assignee === 'unassigned') {
+      f.assignee_is = null
+    } else if (assignee !== 'all') {
       f.assignee = assignee
     }
 

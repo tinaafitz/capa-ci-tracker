@@ -3,6 +3,7 @@ import { FilterSelect } from '@/components/shared/FilterSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { PipelineFunnel } from '@/components/pipeline/PipelineFunnel'
+import { PipelineSlaTiles } from '@/components/pipeline/PipelineSlaTiles'
 import { PipelineTicketList } from '@/components/pipeline/PipelineTicketList'
 import { StreakList } from '@/components/pipeline/StreakList'
 import { TicketDetail } from '@/components/tickets/TicketDetail'
@@ -60,6 +61,19 @@ export function PipelinePage() {
       selectTicket(ticket)
     },
     [selectTicket]
+  )
+
+  // Numeric selected stage derived from the string stage filter, for funnel highlight.
+  const selectedStage = stageFilter !== 'all' ? parseInt(stageFilter, 10) : null
+
+  // Clicking a funnel stage filters the ticket table; clicking the same stage clears it.
+  const handleStageSelect = useCallback(
+    (ordinal) => {
+      setStageFilter((prev) =>
+        prev === String(ordinal) ? 'all' : String(ordinal)
+      )
+    },
+    []
   )
 
   return (
@@ -122,7 +136,13 @@ export function PipelinePage() {
           </div>
 
           <TabsContent value="funnel" className="px-6 py-5 space-y-5">
-            <PipelineFunnel data={funnelData} loading={funnelLoading} />
+            <PipelineSlaTiles tickets={tickets} loading={ticketsLoading} />
+            <PipelineFunnel
+              data={funnelData}
+              loading={funnelLoading}
+              selectedStage={selectedStage}
+              onStageSelect={handleStageSelect}
+            />
             <PipelineTicketList
               tickets={tickets}
               loading={ticketsLoading}

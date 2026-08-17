@@ -2,6 +2,12 @@ import { useNavigate } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { useAppActions } from '@/store/AppContext'
+import {
+  formatRelative,
+  formatAbsolute,
+  truncateJobName,
+  truncateBuildId,
+} from '@/lib/utils'
 
 const activityIcons = {
   build_completed: (
@@ -99,8 +105,11 @@ export function ActivityCard({ activity, isNew = false }) {
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground truncate">
-            {activity.title}
+          <span
+            className="text-sm font-medium text-foreground truncate"
+            title={activity.title}
+          >
+            {truncateJobName(activity.title)}
           </span>
           {linkedBuild && activity.activity_type === 'build_completed' && (
             <StatusBadge status={linkedBuild.status} />
@@ -126,8 +135,9 @@ export function ActivityCard({ activity, isNew = false }) {
             <button
               onClick={handleBuildClick}
               className="text-xs font-mono text-primary hover:underline"
+              title={`Build ${linkedBuild.external_id}`}
             >
-              Build #{linkedBuild.external_id}
+              #{truncateBuildId(linkedBuild.external_id)}
             </button>
           )}
           {activity.actor && activity.actor !== 'system' && (
@@ -139,19 +149,12 @@ export function ActivityCard({ activity, isNew = false }) {
       </div>
 
       {/* Timestamp */}
-      <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 mt-0.5">
-        {formatTime(activity.created_at)}
+      <span
+        className="text-xs text-muted-foreground whitespace-nowrap shrink-0 mt-0.5"
+        title={formatAbsolute(activity.created_at)}
+      >
+        {formatRelative(activity.created_at)}
       </span>
     </div>
   )
-}
-
-function formatTime(timestamp) {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
 }

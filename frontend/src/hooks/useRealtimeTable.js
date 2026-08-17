@@ -49,6 +49,13 @@ export function useRealtimeTable(table, options = {}) {
 
       const parsedFilters = JSON.parse(filtersKey)
       for (const [key, value] of Object.entries(parsedFilters)) {
+        // `_is` handles IS NULL / IS NOT NULL. Value may legitimately be null,
+        // so process it before the generic skip below.
+        if (key.endsWith('_is')) {
+          query = query.is(key.replace('_is', ''), value)
+          continue
+        }
+
         if (value === null || value === undefined || value === 'all' || value === '') continue
 
         if (key.endsWith('_gte')) {

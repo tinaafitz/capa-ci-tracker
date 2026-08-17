@@ -26,6 +26,23 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { formatRelative, formatAbsolute } from '@/lib/utils'
+
+function statusBorderClass(status) {
+  switch (status) {
+    case 'failure':
+    case 'failed':
+      return 'border-l-4 border-l-red-500'
+    case 'passed':
+    case 'success':
+      return 'border-l-4 border-l-green-500'
+    case 'pending':
+    case 'running':
+      return 'border-l-4 border-l-yellow-500'
+    default:
+      return 'border-l-4 border-l-muted'
+  }
+}
 
 const statusOptions = [
   { value: 'all', label: 'All Statuses' },
@@ -53,11 +70,26 @@ export function BuildHistoryTable({
       {
         accessorKey: 'external_id',
         header: 'Build',
-        cell: ({ row }) => (
-          <span className="font-mono text-xs font-medium">
-            #{row.getValue('external_id')}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const externalId = row.getValue('external_id')
+          const jobUrl = row.original.job_url
+          if (jobUrl) {
+            return (
+              <a
+                href={jobUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline font-mono text-xs font-medium"
+                onClick={(e) => e.stopPropagation()}
+              >
+                #{externalId}
+              </a>
+            )
+          }
+          return (
+            <span className="font-mono text-xs font-medium">#{externalId}</span>
+          )
+        },
         size: 80,
       },
       {
@@ -65,30 +97,22 @@ export function BuildHistoryTable({
         header: 'Job',
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
+          const repo = extractRepo(row.original.job_name, row.original.source)
           return (
-            <span className="text-sm font-mono break-all whitespace-normal">
-              {fullName}
-            </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-mono break-all whitespace-normal">
+                {fullName}
+              </span>
+              {repo && (
+                <span className="text-xs text-muted-foreground font-mono break-all">
+                  {repo}
+                </span>
+              )}
+            </div>
           )
         },
         size: 500,
         meta: { cellClassName: 'whitespace-normal' },
-      },
-      {
-        id: 'repo',
-        header: 'Repo',
-        accessorFn: (row) => extractRepo(row.job_name, row.source, row.job_url),
-        cell: ({ getValue }) => {
-          const repo = getValue()
-          return repo ? (
-            <span className="text-xs text-muted-foreground font-mono">
-              {repo}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">--</span>
-          )
-        },
-        size: 180,
       },
       {
         accessorKey: 'source',
@@ -107,51 +131,48 @@ export function BuildHistoryTable({
         size: 100,
       },
       {
-        accessorKey: 'pass_count',
-        header: 'Pass',
-        cell: ({ row }) => (
-          <span className="text-sm text-emerald-600 font-mono">
-            {row.getValue('pass_count') ?? '--'}
-          </span>
-        ),
-        size: 60,
-      },
-      {
-        accessorKey: 'fail_count',
-        header: 'Fail',
+        id: 'tests',
+        header: 'Tests',
+        enableSorting: false,
         cell: ({ row }) => {
-          const failCount = row.getValue('fail_count')
+          const pass = row.original.pass_count
+          const fail = row.original.fail_count
+          const skip = row.original.skip_count
           return (
-            <span
-              className={`text-sm font-mono ${
-                failCount > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'
-              }`}
-            >
-              {failCount ?? '--'}
+            <span className="text-sm font-mono whitespace-nowrap">
+              <span className={pass > 0 ? 'text-emerald-600' : 'text-muted-foreground'}>
+                {pass ?? '--'}
+              </span>
+              <span className="text-muted-foreground"> / </span>
+              <span
+                className={
+                  fail > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'
+                }
+              >
+                {fail ?? '--'}
+              </span>
+              <span className="text-muted-foreground"> / </span>
+              <span className="text-muted-foreground">{skip ?? '--'}</span>
             </span>
           )
         },
-        size: 60,
-      },
-      {
-        accessorKey: 'skip_count',
-        header: 'Skip',
-        cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground font-mono">
-            {row.getValue('skip_count') ?? '--'}
-          </span>
-        ),
-        size: 60,
+        size: 120,
       },
       {
         accessorKey: 'started_at',
         header: 'Started',
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {formatBuildTime(row.getValue('started_at'))}
-          </span>
-        ),
-        size: 140,
+        cell: ({ row }) => {
+          const started = row.getValue('started_at')
+          return (
+            <span
+              className="text-xs text-muted-foreground whitespace-nowrap"
+              title={formatAbsolute(started)}
+            >
+              {formatRelative(started)}
+            </span>
+          )
+        },
+        size: 120,
       },
       {
         accessorKey: 'duration_ms',
@@ -282,9 +303,9 @@ export function BuildHistoryTable({
                 return (
                   <TableRow
                     key={row.id}
-                    className={`cursor-pointer hover:bg-muted/50 ${
-                      isFailed ? 'font-medium' : ''
-                    }`}
+                    className={`cursor-pointer hover:bg-muted/50 ${statusBorderClass(
+                      row.original.status
+                    )} ${isFailed ? 'font-medium' : ''}`}
                     onClick={() => onBuildClick(row.original)}
                   >
                     {row.getVisibleCells().map((cell) => {
@@ -351,30 +372,6 @@ export function BuildHistoryTable({
   )
 }
 
-function formatBuildTime(timestamp) {
-  if (!timestamp) return '--'
-  const date = new Date(timestamp)
-  const now = new Date()
-  const today = now.toDateString()
-  const yesterday = new Date(now.getTime() - 86400000).toDateString()
-
-  const time = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-
-  if (date.toDateString() === today) return `${time} today`
-  if (date.toDateString() === yesterday) return `Yesterday ${time}`
-
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
 function formatDuration(ms) {
   if (!ms) return '--'
   const minutes = Math.floor(ms / 60000)
@@ -385,7 +382,7 @@ function formatDuration(ms) {
   return `${minutes}m`
 }
 
-function extractRepo(jobName, source, jobUrl) {
+function extractRepo(jobName, source) {
   if (source === 'prow' && jobName) {
     if (jobName.includes('openshift-online-rosa-e2e')) {
       return 'stolostron/rosa-hcp-e2e-test'

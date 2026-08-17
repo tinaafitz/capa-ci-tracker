@@ -217,9 +217,14 @@ function handleSelect(req: import('express').Request, res: import('express').Res
       res.set('Content-Range', `${from}-${Math.max(to, from)}/${total}`);
     }
 
-    // Single object response
+    // Single object response — maybeSingle() returns null on 0 rows, single() would 406
     if (parsed.wantSingleObject) {
       if (result.length === 0) {
+        const preferHeader = (req.headers['prefer'] as string) || '';
+        if (preferHeader.includes('missing=default')) {
+          res.json(null);
+          return;
+        }
         res.status(406).json({
           message: 'JSON object requested, multiple (or no) rows returned',
           code: 'PGRST116',

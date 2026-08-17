@@ -1,20 +1,23 @@
 import { useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Separator } from '@/components/ui/separator'
 import { BuildTrendChart } from '@/components/transactions/BuildTrendChart'
 import { BuildHistoryTable } from '@/components/transactions/BuildHistoryTable'
+import { BuildStatTiles } from '@/components/transactions/BuildStatTiles'
 import { BuildDetail } from '@/components/transactions/BuildDetail'
-import { useBuilds, useBuildTrendData } from '@/hooks/useBuilds'
+import { useBuilds, useBuildStats, useBuildTrendData } from '@/hooks/useBuilds'
 import { useAppState, useAppActions } from '@/store/AppContext'
 
 export function TransactionsPage() {
   const { selectedBuild, buildDetailOpen } = useAppState()
   const { selectBuild, closeBuildDetail } = useAppActions()
 
-  const [filters, setFilters] = useState({
+  const [searchParams] = useSearchParams()
+  const [filters, setFilters] = useState(() => ({
     job: 'all',
-    status: 'all',
+    status: searchParams.get('status') || 'all',
     dateRange: '7d',
-  })
+  }))
   const [page, setPage] = useState(1)
 
   const { data: builds, loading, count, totalPages } = useBuilds({
@@ -22,6 +25,8 @@ export function TransactionsPage() {
     page,
     pageSize: 20,
   })
+
+  const { stats, loading: statsLoading } = useBuildStats(filters)
 
   const { data: trendData, loading: trendLoading } = useBuildTrendData(30)
 
@@ -46,6 +51,9 @@ export function TransactionsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-6 py-4 space-y-6">
+        {/* KPI stat tiles */}
+        <BuildStatTiles stats={stats} loading={statsLoading} />
+
         {/* Trend Chart */}
         <BuildTrendChart data={trendData} loading={trendLoading} />
 
