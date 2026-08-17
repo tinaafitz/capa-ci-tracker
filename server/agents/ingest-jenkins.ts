@@ -6,7 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
 
@@ -107,8 +107,8 @@ const insecureAgent = new Agent({ connect: { rejectUnauthorized: false } });
 
 async function fetchJenkins(url: string, options: RequestInit = {}): Promise<Response> {
   if (process.env.JENKINS_SKIP_TLS === 'true') {
-    // Cast needed: Node's fetch accepts undici dispatcher but the type is not in RequestInit
-    return fetch(url, { ...options, dispatcher: insecureAgent } as RequestInit);
+    // Use undici's own fetch to avoid Node 24 built-in undici version mismatch
+    return undiciFetch(url, { ...options, dispatcher: insecureAgent } as Parameters<typeof undiciFetch>[1]) as unknown as Response;
   }
   return fetch(url, options);
 }
@@ -134,6 +134,7 @@ async function fetchJenkinsApi(baseUrl: string, path: string, user: string, toke
 
 async function fetchTestReport(
   baseUrl: string,
+  jobName: string,
   buildNumber: number,
   user: string,
   token: string,
@@ -141,7 +142,7 @@ async function fetchTestReport(
   try {
     const report = (await fetchJenkinsApi(
       baseUrl,
-      `/${buildNumber}/testReport/api/json`,
+      `/job/CI-Jobs/job/${jobName}/${buildNumber}/testReport/api/json`,
       user,
       token,
       60_000,  // 60s timeout for potentially large test reports
@@ -228,7 +229,7 @@ async function ingestJob(
   try {
     const data = (await fetchJenkinsApi(
       baseUrl,
-      `/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
+      `/job/CI-Jobs/job/${jobName}/api/json?tree=builds[number,result,timestamp,duration,url,actions[parameters[name,value]]]{0,20}`,
       user,
       token,
     )) as { builds: JenkinsBuild[] };
@@ -247,7 +248,7 @@ async function ingestJob(
       // Fetch test report for completed builds
       let testReport: JenkinsTestReport | null = null;
       if (build.result) {
-        testReport = await fetchTestReport(baseUrl, build.number, user, token);
+        testReport = await fetchTestReport(baseUrl, jobName, build.number, user, token);
       }
 
       const testFailures = extractTestFailures(testReport);

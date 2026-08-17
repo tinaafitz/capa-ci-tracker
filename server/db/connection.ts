@@ -10,6 +10,7 @@ const db = new DatabaseSync(config.dbPath);
 
 // Performance pragmas
 db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA busy_timeout = 5000');  // wait up to 5s instead of failing immediately on lock
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA synchronous = NORMAL');
 db.exec('PRAGMA cache_size = -64000');
