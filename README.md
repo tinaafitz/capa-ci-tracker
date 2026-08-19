@@ -11,41 +11,42 @@ Automated ingestion from Prow and Jenkins with triage events, streak detection, 
 
 ![Activity Feed](docs/demo/01-activity.png)
 
-### Build history with pass/fail trends
-Track build results over time with filtering by job, status, and date range.
+### Build history with KPI tiles and detail drawer
+KPI stat tiles (total builds, pass rate, failed count, avg duration), color-coded row accents, combined pass/fail/skip column, chart hover tooltips, relative timestamps, and a slide-in detail drawer with test summary, linked ticket, and log.
 
 ![Build History](docs/demo/02-builds.png)
 
 ### Auto-triaged tickets on kanban board
-CI failures are automatically triaged into tickets with severity classification, error signature deduplication, and root cause diagnosis.
+CI failures are automatically triaged into tickets with severity classification, error signature deduplication, and root cause diagnosis. Toggle between kanban and list view.
 
 ![Tickets Kanban](docs/demo/03-tickets.png)
 
-### Resolution funnel with conversion metrics
-Visualize the failure-to-fix lifecycle: ticket created, root cause diagnosed, PR submitted, merged, fix verified. Track conversion rates and time-in-stage.
+### Resolution funnel with SLA tiles and drop-off metrics
+SLA summary tiles (median time-to-fix, oldest open, slowest stage, SLA breaches). Funnel drop-off labels show count and % lost between stages. Clickable funnel stages filter the ticket table. Stuck ticket badges highlight anything in-stage >3 days. Live elapsed duration ticks for in-flight tickets.
 
 ![Resolution Funnel](docs/demo/04-funnel.png)
 
 ### Multi-day failure streak detection
-Automatically detects consecutive CI failures, identifies when error signatures change between builds (multiple root causes), and captures relevant log lines from Prow GCS artifacts for developer triage.
+Automatically detects consecutive CI failures across Prow and Jenkins. Active streaks are sorted first; recurring failures link to their open ticket. Captures relevant log lines from Prow GCS artifacts for developer triage.
 
 ![Failure Streaks](docs/demo/05-streaks.png)
 
 ## Architecture
 
 ```
-Browser --> Route --> OAuth Proxy --> nginx (static + /api/ proxy)
-                                            |
-                                       PostgREST:3000 --> Postgres:5432
-                                                               |
-                             CronJobs (ingest, streak-analyzer, resolution-tracker, morning-digest)
+Browser --> OAuth Proxy --> nginx (static frontend + /api/ proxy)
+                                        |
+                                 Express:3001 --> SQLite (WAL mode)
+                                        |
+                         node-cron agents (ingest-jenkins, ingest-prow,
+                                          triage, diagnosis, resolution-tracker, notify)
 ```
 
 - **Frontend:** React 19 + Vite + TailwindCSS + shadcn/ui
-- **API:** PostgREST (auto-exposes all tables, views, and RPCs)
-- **Database:** PostgreSQL 16
-- **Ingestion:** Node.js CronJobs polling Prow and Jenkins APIs
-- **Deployment:** OpenShift with kustomize
+- **API:** Express with PostgREST-compatible filter syntax
+- **Database:** SQLite in WAL mode (persistent volume at `/data/` in production)
+- **Ingestion:** node-cron agents polling Prow and Jenkins APIs every 5 minutes
+- **Deployment:** Single-container OCP deployment with kustomize
 
 ## Quick Start
 
@@ -53,18 +54,22 @@ Browser --> Route --> OAuth Proxy --> nginx (static + /api/ proxy)
 # Install dependencies
 make install
 
-# Seed the database and start both servers
+# Seed the database
 make seed
+
+# Start both servers (frontend :5173, API :3001)
 make dev
 
 # Or individually:
-cd server && npm run dev   # Express API on :3001
-cd frontend && npm run dev # Vite frontend on :5173
+cd server && npm run dev    # Express API on :3001
+cd frontend && npm run dev  # Vite on :5173
 ```
+
+Set `VITE_DEV_BYPASS_AUTH=true` in `frontend/.env` to skip the login gate locally.
 
 ## OpenShift Deployment
 
-See [deployment docs](deploy/openshift/README.md) for full OCP deployment with kustomize.
+Deploys as a single container (static frontend + Express API). See [deployment docs](docs/openshift_deployment.md).
 
 ```bash
 oc apply -k deploy/openshift/
