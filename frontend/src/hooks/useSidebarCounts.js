@@ -18,8 +18,7 @@ export function useSidebarCounts() {
     const [ticketResult, buildResult, activeResult] = await Promise.all([
       supabase
         .from('v_ticket_summary')
-        .select('id', { count: 'exact', head: true })
-        .in('status', openStatuses),
+        .select('id', { count: 'exact', head: true }),
       supabase
         .from('builds')
         .select('id', { count: 'exact', head: true })
