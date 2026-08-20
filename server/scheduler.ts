@@ -60,8 +60,11 @@ export function startScheduler(): void {
   let prowRunning = false;
   let resolutionRunning = false;
 
+  const disableIngest = process.env.DISABLE_INGEST === 'true';
+
   // ingest-jenkins: every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
+    if (disableIngest) return;
     if (jenkinsRunning) {
       console.log('[cron] ingest-jenkins already running, skipping');
       return;
@@ -81,6 +84,7 @@ export function startScheduler(): void {
 
   // ingest-prow: every 5 minutes, offset by 2 minutes (matches pg_cron '2-59/5')
   cron.schedule('2-59/5 * * * *', async () => {
+    if (disableIngest) return;
     if (prowRunning) {
       console.log('[cron] ingest-prow already running, skipping');
       return;

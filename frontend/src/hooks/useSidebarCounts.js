@@ -21,8 +21,7 @@ export function useSidebarCounts() {
         .select('id', { count: 'exact', head: true }),
       supabase
         .from('builds')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'failure'),
+        .select('id', { count: 'exact', head: true }),
       supabase
         .from('support_tickets')
         .select('id', { count: 'exact', head: true })
