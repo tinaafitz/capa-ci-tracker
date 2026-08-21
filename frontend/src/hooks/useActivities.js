@@ -14,7 +14,7 @@ import { useRealtimeTable } from './useRealtimeTable'
 export function useActivities(filterOptions = {}) {
   const {
     type = 'all',
-    dateRange = '24h',
+    dateRange = '30d',
     ticketId = 'all',
     buildId = 'all',
     limit = 50,
