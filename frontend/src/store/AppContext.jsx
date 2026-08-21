@@ -12,7 +12,7 @@ const initialState = {
   filters: {
     tickets: { status: 'open', severity: 'all', assignee: 'all', search: '' },
     builds: { job: 'all', status: 'all', dateRange: '7d' },
-    activities: { type: 'all', dateRange: '24h', ticket: 'all' },
+    activities: { type: 'all', dateRange: '30d', ticket: 'all' },
   },
   selectedTicket: null,
   selectedBuild: null,
