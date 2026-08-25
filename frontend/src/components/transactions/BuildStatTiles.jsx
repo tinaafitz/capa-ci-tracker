@@ -19,33 +19,35 @@ function passRateColor(rate) {
 
 function StatTile({ label, value, valueClassName = 'text-foreground', sub }) {
   return (
-    <Card className="flex-1 px-3 py-2">
-      <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide leading-tight">
-        {label}
+    <Card className="flex-1 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+          {label}
+        </span>
+        {sub && (
+          <span className="text-[11px] text-amber-600 font-medium whitespace-nowrap">
+            {sub}
+          </span>
+        )}
       </div>
-      <div className={`text-xl font-semibold tabular-nums leading-tight ${valueClassName}`}>
+      <div className={`mt-0.5 text-2xl font-semibold tabular-nums leading-tight ${valueClassName}`}>
         {value}
       </div>
-      {sub && (
-        <div className="text-[11px] text-amber-600 font-medium leading-tight">
-          {sub}
-        </div>
-      )}
     </Card>
   )
 }
 
 export function BuildStatTiles({ stats, loading }) {
-  // 2x2 grid keeps the tiles compact so they can sit beside the trend chart on wide screens.
-  const gridClass = 'grid grid-cols-2 gap-2 xl:w-72 xl:shrink-0'
+  // Full-width single row of tiles: comfortable height, but far shorter than the old 2xl stacked cards.
+  const gridClass = 'grid grid-cols-2 sm:grid-cols-4 gap-3'
 
   if (loading) {
     return (
       <div className={gridClass}>
         {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="flex-1 px-3 py-2">
+          <Card key={i} className="px-4 py-2.5">
             <Skeleton className="h-3 w-16" />
-            <Skeleton className="mt-1.5 h-5 w-12" />
+            <Skeleton className="mt-1.5 h-6 w-12" />
           </Card>
         ))}
       </div>

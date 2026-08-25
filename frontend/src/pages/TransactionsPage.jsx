@@ -20,6 +20,7 @@ export function TransactionsPage() {
     dateRange: '7d',
   }))
   const [hideInfra, setHideInfra] = useState(false)
+  const [showTrend, setShowTrend] = useState(false)
   const [page, setPage] = useState(1)
 
   const { data: builds, loading, count, totalPages, refetch: refetchBuilds } = useBuilds({
@@ -57,10 +58,32 @@ export function TransactionsPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-6 py-3 space-y-3">
-        {/* KPI stat tiles + trend chart: side-by-side on wide screens to save vertical space */}
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
-          <BuildStatTiles stats={stats} loading={statsLoading} />
-          <BuildTrendChart data={trendData} loading={trendLoading} />
+        {/* Compact KPI stat strip (one line). Trend chart is collapsed by default
+            so the builds table is visible without scrolling. */}
+        <BuildStatTiles stats={stats} loading={statsLoading} />
+
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowTrend((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+            aria-expanded={showTrend}
+          >
+            <svg
+              className={`h-3 w-3 transition-transform ${showTrend ? 'rotate-90' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Build Trend (Last 30 Days)
+          </button>
+          {showTrend && (
+            <div className="mt-2">
+              <BuildTrendChart data={trendData} loading={trendLoading} />
+            </div>
+          )}
         </div>
 
         <Separator />

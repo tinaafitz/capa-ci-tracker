@@ -66,10 +66,7 @@ export function BuildTrendChart({ data, loading }) {
   }
 
   return (
-    <div className="min-w-0 flex-1 space-y-1.5">
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Build Trend (Last 30 Days)
-      </h3>
+    <div className="min-w-0 flex-1">
       <ResponsiveContainer width="100%" height={130}>
         <BarChart
           data={data}
