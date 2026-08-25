@@ -101,11 +101,11 @@ describe('useActivities', () => {
       vi.useRealTimers()
     })
 
-    it('defaults to 24h and produces created_at_gte', () => {
+    it('defaults to 30d and produces created_at_gte', () => {
       renderHook(() => useActivities())
       const [, options] = mockUseRealtimeTable.mock.calls[0]
       const gte = new Date(options.filters.created_at_gte)
-      const expected = new Date('2025-06-14T12:00:00Z')
+      const expected = new Date('2025-05-16T12:00:00Z')
       expect(gte.getTime()).toBe(expected.getTime())
     })
 
