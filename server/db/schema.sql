@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS builds (
   test_failures   TEXT        DEFAULT '[]',
   raw_payload     TEXT,
   log_fetched     INTEGER     NOT NULL DEFAULT 0,
+  failure_class   TEXT,
+  failure_reason  TEXT,
+  is_infra        INTEGER     NOT NULL DEFAULT 0,
   created_at      TEXT        NOT NULL,
   updated_at      TEXT        NOT NULL,
 
@@ -104,6 +107,7 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   verified_in_build_id    TEXT        REFERENCES builds (id) ON DELETE SET NULL,
   streak_id               TEXT        REFERENCES failure_streaks (id) ON DELETE SET NULL,
   signature_cleared_in_build_id TEXT  REFERENCES builds (id) ON DELETE SET NULL,
+  failure_class           TEXT,
   diagnosed_at            TEXT,
   pr_merged_at            TEXT,
   created_at              TEXT        NOT NULL,
@@ -292,6 +296,10 @@ SELECT
   t.updated_at,
   t.resolved_at,
   t.verified_at,
+  -- Infra classification fields
+  t.failure_class,
+  b.is_infra,
+  b.failure_class  AS build_failure_class,
   -- Originating build info
   b.job_name       AS build_job_name,
   b.job_url        AS build_job_url,

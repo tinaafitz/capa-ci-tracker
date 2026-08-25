@@ -6,6 +6,7 @@ import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline'
 import { useActivities } from '@/hooks/useActivities'
 import { useTriageSummary } from '@/hooks/useTriageSummary'
+import { RefreshIngestButton } from '@/components/shared/RefreshIngestButton'
 
 const activityTypeOptions = [
   { value: 'all', label: 'All Events' },
@@ -40,7 +41,7 @@ export function ActivityPage() {
 
   const triageSummary = useTriageSummary(filters.dateRange)
 
-  const { data, loading, groupedByDay, count } = useActivities({
+  const { data, loading, groupedByDay, count, refetch: refetchActivities } = useActivities({
     type: filters.type,
     dateRange: filters.dateRange,
     limit: 100,
@@ -102,11 +103,14 @@ export function ActivityPage() {
       <div className="px-6 py-4 border-b border-border bg-background shrink-0">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-foreground">Activity</h2>
-          {count > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {count} event{count !== 1 ? 's' : ''}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {count > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {count} event{count !== 1 ? 's' : ''}
+              </span>
+            )}
+            <RefreshIngestButton onRefreshed={refetchActivities} />
+          </div>
         </div>
 
         {/* Filters */}

@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "seed": "tsx seed-runner.ts",
     "migrate": "tsx scripts/migrate-from-postgres.ts",
+    "backfill": "tsx scripts/backfill-failure-class.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

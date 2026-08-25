@@ -12,6 +12,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
+import { isInfraClass } from './classify-failure.js';
 
 const AGENT_NAME = 'notify';
 
@@ -100,6 +101,7 @@ interface Ticket {
   root_cause: string | null;
   fix_pr_url: string | null;
   streak_id?: string | null;
+  failure_class: string | null;
 }
 
 interface Build {
@@ -112,6 +114,9 @@ interface Build {
   fail_count: number;
   total_count: number;
   ocp_version: string | null;
+  failure_class: string | null;
+  failure_reason: string | null;
+  is_infra: number; // 0 or 1
 }
 
 interface StreakPhase {
@@ -169,13 +174,13 @@ const getActivityStmt = db.prepare('SELECT * FROM activities WHERE id = ?');
 
 const getTicketStmt = db.prepare(`
   SELECT id, ticket_number, title, status, severity, assignee,
-    error_signature, root_cause, fix_pr_url, streak_id
+    error_signature, root_cause, fix_pr_url, streak_id, failure_class
   FROM support_tickets WHERE id = ?
 `);
 
 const getBuildStmt = db.prepare(`
   SELECT id, source, external_id, job_name, job_url, status,
-    fail_count, total_count, ocp_version
+    fail_count, total_count, ocp_version, failure_class, failure_reason, is_infra
   FROM builds WHERE id = ?
 `);
 
@@ -518,6 +523,89 @@ function buildStreakResolvedBlocks(
 }
 
 // ============================================================
+// Infra failure Block Kit builder
+// ============================================================
+
+function buildInfraReportBlocks(
+  activity: Activity,
+  ticket: Ticket | null,
+  build: Build | null,
+): SlackBlock[] {
+  const blocks: SlackBlock[] = [];
+
+  blocks.push({
+    type: 'header',
+    text: {
+      type: 'plain_text',
+      text: ':construction: CI Infra Failure — NOT a CAPA regression',
+      emoji: true,
+    },
+  });
+
+  const cls = build?.failure_class ?? ticket?.failure_class ?? 'unknown';
+  const reason = build?.failure_reason ?? activity.description ?? null;
+  const testsPassed = build && build.fail_count === 0 && build.total_count > 0;
+
+  blocks.push({
+    type: 'section',
+    fields: [
+      { type: 'mrkdwn', text: `*Failure Class:* \`${cls}\`` },
+      { type: 'mrkdwn', text: `*Tests Passed:* ${testsPassed ? ':white_check_mark: Yes' : ':x: No'}` },
+    ],
+  });
+
+  if (reason) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Reason:* ${reason.substring(0, 500)}` },
+    });
+  }
+
+  if (build) {
+    const buildLink = build.job_url
+      ? `<${build.job_url}|${build.job_name} #${build.external_id}>`
+      : `${build.job_name} #${build.external_id}`;
+    const owner = ticket?.assignee ?? 'unassigned';
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Prow/Jenkins:* ${buildLink}` },
+        { type: 'mrkdwn', text: `*Owner:* ${owner}` },
+      ],
+    });
+  }
+
+  if (ticket) {
+    blocks.push({
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Ticket:* CAPA-${ticket.ticket_number}` },
+        { type: 'mrkdwn', text: `*Status:* ${STATUS_EMOJI[ticket.status] || ''} ${ticket.status}` },
+      ],
+    });
+  }
+
+  blocks.push({
+    type: 'context',
+    elements: [{
+      type: 'mrkdwn',
+      text: `infra_failure | notify-agent | <!date^${Math.floor(new Date(activity.created_at).getTime() / 1000)}^{date_short_pretty} at {time}|${activity.created_at}>`,
+    }],
+  });
+
+  blocks.push({ type: 'divider' });
+  return blocks;
+}
+
+// Helper: is this notification about an infra failure?
+function isInfraNotification(ticket: Ticket | null, build: Build | null): boolean {
+  if (build?.is_infra === 1) return true;
+  if (build?.failure_class && isInfraClass(build.failure_class)) return true;
+  if (ticket?.failure_class && isInfraClass(ticket.failure_class)) return true;
+  return false;
+}
+
+// ============================================================
 // Standard (non-streak) Block Kit builder
 // ============================================================
 
@@ -661,6 +749,8 @@ function resolveStreakId(activity: Activity): string | null {
 export async function run(params: NotifyParams): Promise<AgentResult> {
   const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
   const SLACK_CHANNEL = process.env.SLACK_CHANNEL || '#capa-ci-alerts';
+  // Infra failures go to a dedicated channel; fall back to the main channel if unset.
+  const SLACK_INFRA_CHANNEL = process.env.SLACK_INFRA_CHANNEL || SLACK_CHANNEL;
 
   if (!SLACK_WEBHOOK_URL) {
     console.warn('[notify] SLACK_WEBHOOK_URL not set -- skipping notification');
@@ -764,10 +854,16 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
       build = (getBuildStmt.get(activity.build_id) as unknown as Build) ?? null;
     }
 
+    // Determine if this is an infra notification
+    const isInfra = isInfraNotification(ticket, build);
+
     // Build Slack blocks
     let blocks: SlackBlock[];
 
-    if (STREAK_TYPES.has(activity.activity_type)) {
+    if (isInfra && !STREAK_TYPES.has(activity.activity_type)) {
+      // Infra failures get a distinct Block Kit layout (non-streak path)
+      blocks = buildInfraReportBlocks(activity, ticket, build);
+    } else if (STREAK_TYPES.has(activity.activity_type)) {
       let streak: FailureStreak | null = null;
       let phaseTickets: Map<string, Ticket> = new Map();
 
@@ -820,8 +916,11 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
       blocks = buildSlackBlocks(activity, ticket, build);
     }
 
+    // Route infra notifications to the infra channel; all others go to the main channel
+    const targetChannel = isInfra ? SLACK_INFRA_CHANNEL : SLACK_CHANNEL;
+
     // Send to Slack
-    const slackResult = await sendSlackNotification(SLACK_WEBHOOK_URL, SLACK_CHANNEL, blocks);
+    const slackResult = await sendSlackNotification(SLACK_WEBHOOK_URL, targetChannel, blocks);
 
     if (!slackResult.ok) {
       throw new Error(`Slack notification failed: ${slackResult.error}`);
@@ -830,10 +929,11 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
     // Record notification_sent activity
     const now = new Date().toISOString();
     const notificationMetadata: Record<string, unknown> = {
-      channel: SLACK_CHANNEL,
+      channel: targetChannel,
       ts: slackResult.ts,
       source_activity_id: activityId,
       source_activity_type: activity.activity_type,
+      is_infra: isInfra,
     };
     if (streakId) {
       notificationMetadata.streak_id = streakId;
@@ -842,7 +942,7 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
     insertActivityStmt.run(
       uuidv4(),
       `Slack notification sent for: ${activity.title.substring(0, 100)}`,
-      `Notification delivered to ${SLACK_CHANNEL}`,
+      `Notification delivered to ${targetChannel}`,
       activity.ticket_id,
       activity.build_id,
       JSON.stringify(notificationMetadata),
@@ -852,10 +952,11 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
     updateAgentRunStmt.run(
       1,
       JSON.stringify({
-        channel: SLACK_CHANNEL,
+        channel: targetChannel,
         ts: slackResult.ts,
         activity_type: activity.activity_type,
         streak_id: streakId,
+        is_infra: isInfra,
       }),
       Date.now() - startTime,
       null,
@@ -864,8 +965,8 @@ export async function run(params: NotifyParams): Promise<AgentResult> {
 
     return {
       success: true,
-      message: `Notification sent to ${SLACK_CHANNEL}`,
-      channel: SLACK_CHANNEL,
+      message: `Notification sent to ${targetChannel}`,
+      channel: targetChannel,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

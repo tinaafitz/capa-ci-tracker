@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { FilterSelect } from '@/components/shared/FilterSelect'
@@ -29,6 +30,15 @@ import { TicketStatusBadge } from './TicketStatusBadge'
 import { SeverityBadge, SEVERITY_ORDER } from './SeverityBadge'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { formatAssignee } from '@/lib/utils'
+
+/**
+ * Short label from failure_class for infra badge (infra_lease -> "lease").
+ */
+function infraClassLabel(cls) {
+  if (!cls) return 'infra'
+  if (cls.startsWith('infra_')) return cls.slice(6)
+  return cls
+}
 
 const statusOptions = [
   { value: 'open', label: 'Open' },
@@ -113,13 +123,25 @@ export function TicketList({
       {
         accessorKey: 'title',
         header: 'Title',
-        cell: ({ row }) => (
-          <div className="max-w-md">
-            <span className="text-sm font-medium truncate block">
-              {row.getValue('title')}
-            </span>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
+          const cls = row.original.failure_class || row.original.build_failure_class
+          return (
+            <div className="max-w-md flex items-center gap-2">
+              <span className="text-sm font-medium truncate block">
+                {row.getValue('title')}
+              </span>
+              {isInfra && (
+                <Badge
+                  variant="outline"
+                  className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px] shrink-0"
+                >
+                  infra:{infraClassLabel(cls)}
+                </Badge>
+              )}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'severity',

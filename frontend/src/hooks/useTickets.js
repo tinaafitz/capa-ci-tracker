@@ -11,6 +11,7 @@ import { useRealtimeTable } from './useRealtimeTable'
  * @param {string} filterOptions.severity - 'all' | specific severity
  * @param {string} filterOptions.assignee - 'all' | specific assignee
  * @param {string} filterOptions.search - Search string for title/ticket_number
+ * @param {boolean} filterOptions.hideInfra - When true, filter out infra/harness tickets (is_infra=0)
  * @param {number} filterOptions.page - Page number (1-indexed)
  * @param {number} filterOptions.pageSize - Items per page (default: 20)
  */
@@ -20,6 +21,7 @@ export function useTickets(filterOptions = {}) {
     severity = 'all',
     assignee = 'all',
     search = '',
+    hideInfra = false,
     page = 1,
     pageSize = 20,
   } = filterOptions
@@ -48,8 +50,12 @@ export function useTickets(filterOptions = {}) {
       f.title_ilike = search
     }
 
+    if (hideInfra) {
+      f.is_infra = 0
+    }
+
     return f
-  }, [status, severity, assignee, search])
+  }, [status, severity, assignee, search, hideInfra])
 
   const offset = (page - 1) * pageSize
 

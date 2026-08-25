@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
+import { classifyFailure } from './classify-failure.js';
 
 const AGENT_NAME = 'ingest-jenkins';
 
@@ -191,15 +192,23 @@ const upsertBuildStmt = db.prepare(`
   INSERT INTO builds (id, source, external_id, job_name, job_url, status,
     pass_count, fail_count, skip_count, total_count, duration_ms,
     started_at, finished_at, ocp_version, parameters, test_failures,
-    raw_payload, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    raw_payload, failure_class, failure_reason, is_infra, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (source, external_id, job_name) DO UPDATE SET
     status=excluded.status, pass_count=excluded.pass_count,
     fail_count=excluded.fail_count, skip_count=excluded.skip_count,
     total_count=excluded.total_count, duration_ms=excluded.duration_ms,
     finished_at=excluded.finished_at, ocp_version=excluded.ocp_version,
     test_failures=excluded.test_failures, raw_payload=excluded.raw_payload,
-    updated_at=excluded.updated_at
+    updated_at=excluded.updated_at,
+    -- Jenkins classification is deterministic from the build's own test report,
+    -- which is fetched on every pass. The freshly-computed value is therefore
+    -- always authoritative -- take it unconditionally. (An upgrade-only rule
+    -- here would permanently freeze any misclassification, since a bad infra
+    -- label could never be corrected on re-ingest. See self-heal note below.)
+    failure_class = excluded.failure_class,
+    failure_reason = excluded.failure_reason,
+    is_infra = excluded.is_infra
 `);
 
 const checkActivityStmt = db.prepare(`
@@ -213,7 +222,7 @@ const insertActivityStmt = db.prepare(`
 `);
 
 const getBuildIdStmt = db.prepare(`
-  SELECT id FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
+  SELECT id, failure_class, failure_reason, is_infra FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
 `);
 
 async function ingestJob(
@@ -252,6 +261,13 @@ async function ingestJob(
       }
 
       const testFailures = extractTestFailures(testReport);
+      const failCount = testReport?.failCount ?? 0;
+
+      // For Jenkins, testsPassed = all test runs found but none failed,
+      // while the overall build is still "failure" (post-test infra step failed).
+      const passCount = testReport?.passCount ?? 0;
+      const testsPassed: boolean | null =
+        testReport != null ? failCount === 0 && passCount > 0 : null;
 
       const startedAt = new Date(build.timestamp).toISOString();
       const finishedAt = build.result
@@ -262,8 +278,53 @@ async function ingestJob(
       const buildId = uuidv4();
 
       // Check if this build already exists (to avoid unnecessary triage re-invocations)
-      const existingBuild = getBuildIdStmt.get(String(build.number), jobName) as { id: string } | undefined;
+      const existingBuild = getBuildIdStmt.get(String(build.number), jobName) as
+        | { id: string; failure_class: string | null; failure_reason: string | null; is_infra: number }
+        | undefined;
       const isNew = !existingBuild;
+
+      // Success builds get null classification, not 'unknown'.
+      //
+      // SELF-HEAL: for failure/aborted/unstable builds we re-run the classifier
+      // and let the fresh value win (see the upsert above, which takes
+      // excluded.* unconditionally). Jenkins classification is deterministic
+      // from the test report, so a fresh classification is authoritative and a
+      // bad label (e.g. an infra class from an older classifier) corrects itself
+      // on the next ingest instead of requiring a manual backfill.
+      //
+      // GUARD: the classifier is only trustworthy when the test report was
+      // actually fetched this pass. fetchTestReport() swallows all errors and
+      // returns null on a transient failure (timeout / 5xx / flake), which would
+      // make failCount collapse to 0 and misclassify a real product failure as
+      // 'unknown'. When the report is unavailable AND we already have a stored
+      // classification, preserve the stored value rather than overwrite it with
+      // a value derived from no data. (For a brand-new build with no report we
+      // still classify — 'unknown' is the honest answer there.)
+      let classification: { failure_class: string | null; failure_reason: string | null; is_infra: 0 | 1 };
+
+      if (status !== 'failure' && status !== 'aborted' && status !== 'unstable') {
+        classification = { failure_class: null, failure_reason: null, is_infra: 0 };
+      } else if (testReport == null && existingBuild != null && existingBuild.failure_class != null) {
+        // No fresh data this pass — keep what we already know.
+        classification = {
+          failure_class: existingBuild.failure_class,
+          failure_reason: existingBuild.failure_reason,
+          is_infra: (existingBuild.is_infra ? 1 : 0),
+        };
+      } else {
+        const firstFailureReason =
+          testFailures.length > 0
+            ? testFailures[0].errorMessage || testFailures[0].name
+            : undefined;
+
+        classification = classifyFailure({
+          status,
+          jobName,
+          reason: firstFailureReason,
+          testsPassed,
+          failCount,
+        });
+      }
 
       // Upsert the build
       upsertBuildStmt.run(
@@ -273,10 +334,10 @@ async function ingestJob(
         jobName,
         build.url,
         status,
-        testReport?.passCount ?? 0,
-        testReport?.failCount ?? 0,
+        passCount,
+        failCount,
         testReport?.skipCount ?? 0,
-        (testReport?.passCount ?? 0) + (testReport?.failCount ?? 0) + (testReport?.skipCount ?? 0),
+        passCount + failCount + (testReport?.skipCount ?? 0),
         build.duration || null,
         startedAt,
         finishedAt,
@@ -284,6 +345,9 @@ async function ingestJob(
         JSON.stringify(parameters),
         JSON.stringify(testFailures),
         JSON.stringify(build),
+        classification.failure_class,
+        classification.failure_reason,
+        classification.is_infra,
         now,
         now,
       );

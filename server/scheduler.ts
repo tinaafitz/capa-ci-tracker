@@ -2,12 +2,19 @@
  * Cron scheduler — replaces pg_cron + pg_net scheduling.
  *
  * Registers 6 recurring jobs:
- *   1. ingest-jenkins     every 5 minutes
- *   2. ingest-prow        every 5 minutes (offset +2 min)
+ *   1. ingest-jenkins     daily at 05:00 UTC (after CI jobs finish ~04:00 UTC)
+ *   2. ingest-prow        daily at 05:02 UTC (after CI jobs finish ~04:00 UTC)
  *   3. resolution-tracker every 15 minutes
  *   4. retention cleanup  daily at 03:00 UTC (nullify raw_payload > 90 days)
  *   5. agent_runs cleanup daily at 03:30 UTC (delete > 180 days)
  *   6. build_logs cleanup daily at 03:15 UTC (nullify log_text > 30 days)
+ *
+ * Ingest cadence is env-overridable:
+ *   INGEST_JENKINS_CRON — cron expression for ingest-jenkins (default: '0 5 * * *')
+ *   INGEST_PROW_CRON    — cron expression for ingest-prow    (default: '2 5 * * *')
+ * Invalid expressions fall back to the defaults with a console.warn.
+ *
+ * Set DISABLE_INGEST=true to prevent all ingest runs (cron and on-demand).
  */
 
 import cron from 'node-cron';
@@ -16,6 +23,7 @@ import { db } from './db/connection.js';
 import { run as ingestJenkins } from './agents/ingest-jenkins.js';
 import { run as ingestProw } from './agents/ingest-prow.js';
 import { run as resolutionTracker } from './agents/resolution-tracker.js';
+import type { AgentResult } from './agents/ingest-jenkins.js';
 
 // ---------------------------------------------------------------------------
 // Retention helpers
@@ -49,23 +57,103 @@ function buildLogsCleanup(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Overlap guards — shared state so cron and on-demand calls share the same lock
+// ---------------------------------------------------------------------------
+
+let jenkinsRunning = false;
+let prowRunning = false;
+
+// ---------------------------------------------------------------------------
+// On-demand ingest runner (shared by cron callbacks and the refresh endpoint)
+// ---------------------------------------------------------------------------
+
+export interface IngestResult {
+  ok: boolean;
+  message?: string;
+  jenkins?: AgentResult;
+  prow?: AgentResult;
+}
+
+/**
+ * runIngestOnce — runs both ingest agents sequentially with overlap guards.
+ *
+ * Returns immediately with ok:false if ingest is disabled or already running.
+ * On success returns the combined AgentResult from each agent.
+ */
+export async function runIngestOnce(): Promise<IngestResult> {
+  const disableIngest = process.env.DISABLE_INGEST === 'true';
+  if (disableIngest) {
+    return { ok: false, message: 'ingest disabled' };
+  }
+
+  if (jenkinsRunning || prowRunning) {
+    return { ok: false, message: 'ingest already running' };
+  }
+
+  jenkinsRunning = true;
+  prowRunning = true;
+
+  let jenkinsResult: AgentResult;
+  let prowResult: AgentResult;
+
+  try {
+    console.log('[ingest] ingest-jenkins starting');
+    jenkinsResult = await ingestJenkins().catch(err => ({
+      success: false,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+    console.log(`[ingest] ingest-jenkins done: ${jenkinsResult.success ? 'ok' : jenkinsResult.message}`);
+  } finally {
+    jenkinsRunning = false;
+  }
+
+  try {
+    console.log('[ingest] ingest-prow starting');
+    prowResult = await ingestProw().catch(err => ({
+      success: false,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+    console.log(`[ingest] ingest-prow done: ${prowResult.success ? 'ok' : prowResult.message}`);
+  } finally {
+    prowRunning = false;
+  }
+
+  return { ok: true, jenkins: jenkinsResult!, prow: prowResult! };
+}
+
+// ---------------------------------------------------------------------------
+// Env-overridable cron expression helpers
+// ---------------------------------------------------------------------------
+
+const DEFAULT_JENKINS_CRON = '0 5 * * *';
+const DEFAULT_PROW_CRON = '2 5 * * *';
+
+function resolveExpr(envVar: string, defaultExpr: string): string {
+  const val = process.env[envVar];
+  if (!val) return defaultExpr;
+  if (cron.validate(val)) return val;
+  console.warn(
+    `[scheduler] Invalid cron expression in ${envVar}="${val}"; falling back to default "${defaultExpr}"`
+  );
+  return defaultExpr;
+}
+
+// ---------------------------------------------------------------------------
 // Scheduler entry point
 // ---------------------------------------------------------------------------
 
 export function startScheduler(): void {
   if (config.nodeEnv === 'test') return;
 
-  // Overlap guards — prevent concurrent runs of the same agent
-  let jenkinsRunning = false;
-  let prowRunning = false;
+  // Overlap guard for resolution-tracker (local to scheduler, not shared externally)
   let resolutionRunning = false;
 
-  const disableIngest = process.env.DISABLE_INGEST === 'true';
+  const jenkinsCron = resolveExpr('INGEST_JENKINS_CRON', DEFAULT_JENKINS_CRON);
+  const prowCron = resolveExpr('INGEST_PROW_CRON', DEFAULT_PROW_CRON);
 
-  // ingest-jenkins: every 5 minutes
-  cron.schedule('*/5 * * * *', async () => {
-    if (disableIngest) return;
-    if (jenkinsRunning) {
+  // ingest-jenkins: daily at 05:00 UTC (env-overridable via INGEST_JENKINS_CRON)
+  cron.schedule(jenkinsCron, async () => {
+    if (jenkinsRunning || prowRunning) {
       console.log('[cron] ingest-jenkins already running, skipping');
       return;
     }
@@ -80,12 +168,11 @@ export function startScheduler(): void {
     } finally {
       jenkinsRunning = false;
     }
-  });
+  }, { timezone: 'UTC' });
 
-  // ingest-prow: every 5 minutes, offset by 2 minutes (matches pg_cron '2-59/5')
-  cron.schedule('2-59/5 * * * *', async () => {
-    if (disableIngest) return;
-    if (prowRunning) {
+  // ingest-prow: daily at 05:02 UTC (env-overridable via INGEST_PROW_CRON)
+  cron.schedule(prowCron, async () => {
+    if (jenkinsRunning || prowRunning) {
       console.log('[cron] ingest-prow already running, skipping');
       return;
     }
@@ -100,7 +187,7 @@ export function startScheduler(): void {
     } finally {
       prowRunning = false;
     }
-  });
+  }, { timezone: 'UTC' });
 
   // resolution-tracker: every 15 minutes
   cron.schedule('*/15 * * * *', async () => {
@@ -151,5 +238,7 @@ export function startScheduler(): void {
     }
   }, { timezone: 'UTC' });
 
-  console.log('[scheduler] 6 cron jobs registered');
+  console.log(
+    `[scheduler] 6 cron jobs registered (jenkins: ${jenkinsCron}, prow: ${prowCron})`
+  );
 }

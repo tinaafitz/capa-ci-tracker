@@ -7,6 +7,7 @@ import { BuildStatTiles } from '@/components/transactions/BuildStatTiles'
 import { BuildDetail } from '@/components/transactions/BuildDetail'
 import { useBuilds, useBuildStats, useBuildTrendData } from '@/hooks/useBuilds'
 import { useAppState, useAppActions } from '@/store/AppContext'
+import { RefreshIngestButton } from '@/components/shared/RefreshIngestButton'
 
 export function TransactionsPage() {
   const { selectedBuild, buildDetailOpen } = useAppState()
@@ -18,15 +19,17 @@ export function TransactionsPage() {
     status: searchParams.get('status') || 'all',
     dateRange: '7d',
   }))
+  const [hideInfra, setHideInfra] = useState(false)
   const [page, setPage] = useState(1)
 
-  const { data: builds, loading, count, totalPages } = useBuilds({
+  const { data: builds, loading, count, totalPages, refetch: refetchBuilds } = useBuilds({
     ...filters,
+    hideInfra,
     page,
     pageSize: 20,
   })
 
-  const { stats, loading: statsLoading } = useBuildStats(filters)
+  const { stats, loading: statsLoading } = useBuildStats({ ...filters, hideInfra })
 
   const { data: trendData, loading: trendLoading } = useBuildTrendData(30)
 
@@ -46,7 +49,10 @@ export function TransactionsPage() {
     <div className="flex flex-col h-full">
       {/* Page header */}
       <div className="px-6 py-4 border-b border-border bg-background shrink-0">
-        <h2 className="text-lg font-semibold text-foreground">Builds</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Builds</h2>
+          <RefreshIngestButton onRefreshed={refetchBuilds} />
+        </div>
       </div>
 
       {/* Content */}
@@ -67,6 +73,8 @@ export function TransactionsPage() {
           page={page}
           totalPages={totalPages}
           filters={filters}
+          hideInfra={hideInfra}
+          onHideInfraChange={setHideInfra}
           onFiltersChange={handleFiltersChange}
           onPageChange={setPage}
           onBuildClick={handleBuildClick}

@@ -73,6 +73,7 @@ export function TicketsPage() {
     assignee: initialAssignee === 'unassigned' ? 'unassigned' : 'all',
     search: '',
   })
+  const [hideInfra, setHideInfra] = useState(false)
   const filters = viewMode === 'kanban' ? kanbanFilters : tableFilters
   const setFilters = viewMode === 'kanban' ? setKanbanFilters : setTableFilters
   const [page, setPage] = useState(1)
@@ -119,6 +120,7 @@ export function TicketsPage() {
 
   const { data: tickets, loading, count, totalPages } = useTickets({
     ...filters,
+    hideInfra,
     page: isKanban ? 1 : page,
     pageSize: isKanban ? 500 : 20,
   })
@@ -178,6 +180,23 @@ export function TicketsPage() {
               </button>
             </div>
           </div>
+
+          {/* Hide infra toggle */}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <span className="relative inline-flex h-5 w-9 shrink-0">
+              <input
+                type="checkbox"
+                className="peer sr-only"
+                checked={hideInfra}
+                onChange={(e) => setHideInfra(e.target.checked)}
+              />
+              <span className="absolute inset-0 rounded-full bg-muted transition-colors peer-checked:bg-amber-500" />
+              <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Hide infra
+            </span>
+          </label>
 
           <Button size="sm" onClick={() => setCreateModalOpen(true)}>
             <svg
