@@ -111,14 +111,28 @@ export function classifyFailure(input: ClassifyInput): ClassifyResult {
   // The structured `executing_graph:step_failed:...` token is exclusively
   // produced by the Prow entrypoint; it cannot appear in test output.
   // Safe to match even when failCount > 0.
+  //
+  // EXCEPTION: when finished.json explicitly reported tests FAILED
+  // (testsPassed === false), a trailing gather/teardown/must-gather step reason
+  // must NOT override that. Those post-test steps run on nearly every failed
+  // Prow e2e job, so the harness token here reflects cleanup after the real
+  // product failure — not an infra failure. finished.json is authoritative.
   if (RE_PROW_HARNESS.test(text)) {
+    if (testsPassed === false) {
+      return { failure_class: 'product_test_failure', failure_reason: null, is_infra: 0 };
+    }
     return classifyHarnessReason(text);
   }
 
   // Rule 3 — tests known to have passed but overall job failed → infra post-step.
   // (testsPassed===true means finished.json reported passed=true but the job
   // still ended in failure — a post-test infra step broke.)
-  if (testsPassed === true) {
+  //
+  // Additionally require failCount === 0 so the two signals can't contradict:
+  // a caller passing testsPassed:true with failCount>0 must not silently get
+  // an infra class. When they disagree, fall through to the failCount gate
+  // (Rule 4) which treats recorded test failures as a product failure.
+  if (testsPassed === true && failCount === 0) {
     return classifyInfraText(text);
   }
 

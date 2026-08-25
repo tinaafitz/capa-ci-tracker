@@ -258,6 +258,45 @@ describe('classifyFailure', () => {
   });
 
   // ---------------------------------------------------------------
+  // Prow product failure hidden behind a trailing gather/must-gather step.
+  // finished.json reported tests FAILED (testsPassed=false), so the harness
+  // reason for the post-test gather step must NOT win — it's a real product
+  // failure, not infra_teardown.
+  // ---------------------------------------------------------------
+
+  it('classifies Prow gather-must-gather step as product_test_failure when testsPassed=false', () => {
+    const result = classifyFailure({
+      status: 'failure',
+      jobName: 'periodic-ci-openshift-online-rosa-e2e-main_capa-e2e-capa-e2e',
+      reason: 'executing_graph:step_failed:gather-must-gather',
+      description: 'Job failed.',
+      testsPassed: false,
+      failCount: 1,
+    });
+    expect(result.failure_class).toBe('product_test_failure');
+    expect(result.is_infra).toBe(0);
+  });
+
+  // ---------------------------------------------------------------
+  // Rule 3 contradiction guard: testsPassed=true with failCount>0 must NOT
+  // silently produce an infra class. The two signals disagree, so the
+  // recorded test failures (failCount>0) win → product_test_failure.
+  // ---------------------------------------------------------------
+
+  it('does NOT return an infra class when testsPassed=true but failCount>0', () => {
+    const result = classifyFailure({
+      status: 'failure',
+      jobName: 'capa-e2e',
+      reason: 'releasing aws-3--us-east-1--quota-slice-335',
+      testsPassed: true,
+      failCount: 2,
+    });
+    expect(isInfraClass(result.failure_class)).toBe(false);
+    expect(result.failure_class).toBe('product_test_failure');
+    expect(result.is_infra).toBe(0);
+  });
+
+  // ---------------------------------------------------------------
   // isInfraClass helper
   // ---------------------------------------------------------------
 

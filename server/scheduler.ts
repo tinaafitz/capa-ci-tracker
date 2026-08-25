@@ -69,6 +69,13 @@ let prowRunning = false;
 
 export interface IngestResult {
   ok: boolean;
+  /**
+   * Machine-readable discriminator for the two non-failure "not-run" cases.
+   * Absent when the agents actually ran (ok reflects their combined success).
+   *   'disabled' — ingest is turned off via DISABLE_INGEST
+   *   'running'  — a scheduled or manual run is already in progress
+   */
+  reason?: 'disabled' | 'running';
   message?: string;
   jenkins?: AgentResult;
   prow?: AgentResult;
@@ -77,17 +84,19 @@ export interface IngestResult {
 /**
  * runIngestOnce — runs both ingest agents sequentially with overlap guards.
  *
- * Returns immediately with ok:false if ingest is disabled or already running.
- * On success returns the combined AgentResult from each agent.
+ * Returns immediately with ok:false + a typed reason if ingest is disabled
+ * ('disabled') or already running ('running'). When the agents actually run,
+ * `ok` is derived from their combined success (jenkins.success && prow.success)
+ * and no `reason` is set — so a fully-failed run reports ok:false with no reason.
  */
 export async function runIngestOnce(): Promise<IngestResult> {
   const disableIngest = process.env.DISABLE_INGEST === 'true';
   if (disableIngest) {
-    return { ok: false, message: 'ingest disabled' };
+    return { ok: false, reason: 'disabled', message: 'ingest disabled' };
   }
 
   if (jenkinsRunning || prowRunning) {
-    return { ok: false, message: 'ingest already running' };
+    return { ok: false, reason: 'running', message: 'ingest already running' };
   }
 
   jenkinsRunning = true;
@@ -118,7 +127,11 @@ export async function runIngestOnce(): Promise<IngestResult> {
     prowRunning = false;
   }
 
-  return { ok: true, jenkins: jenkinsResult!, prow: prowResult! };
+  // Derive top-level ok from the ACTUAL agent results. If either agent failed
+  // internally, ok is false (with no reason) so the endpoint reports a genuine
+  // failure rather than a misleading success.
+  const ok = jenkinsResult!.success && prowResult!.success;
+  return { ok, jenkins: jenkinsResult!, prow: prowResult! };
 }
 
 // ---------------------------------------------------------------------------
