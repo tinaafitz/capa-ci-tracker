@@ -136,7 +136,7 @@ function FunnelStageCard({ stage, index, maxCount, firstCount, selected, onSelec
                 onSelect?.(ordinal)
               }
             }}
-            className={`flex flex-col items-center flex-1 min-w-0 group cursor-pointer rounded-lg px-1 py-1 transition-shadow ${
+            className={`flex flex-col items-center flex-1 min-w-0 max-w-[10rem] group cursor-pointer rounded-lg px-1 py-1 transition-shadow ${
               selected ? 'ring-2 ring-primary' : ''
             }`}
           >

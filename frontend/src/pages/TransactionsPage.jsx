@@ -48,7 +48,7 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+      <div className="px-6 py-2.5 border-b border-border bg-background shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Builds</h2>
           <RefreshIngestButton onRefreshed={refetchBuilds} />
@@ -56,12 +56,12 @@ export function TransactionsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-6 py-4 space-y-6">
-        {/* KPI stat tiles */}
-        <BuildStatTiles stats={stats} loading={statsLoading} />
-
-        {/* Trend Chart */}
-        <BuildTrendChart data={trendData} loading={trendLoading} />
+      <div className="flex-1 overflow-auto px-6 py-3 space-y-3">
+        {/* KPI stat tiles + trend chart: side-by-side on wide screens to save vertical space */}
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
+          <BuildStatTiles stats={stats} loading={statsLoading} />
+          <BuildTrendChart data={trendData} loading={trendLoading} />
+        </div>
 
         <Separator />
 

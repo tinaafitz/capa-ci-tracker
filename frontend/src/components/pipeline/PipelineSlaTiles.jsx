@@ -36,7 +36,7 @@ function median(values) {
 
 function StatTile({ label, value, sub, valueClassName = '' }) {
   return (
-    <Card size="sm" className="flex-1">
+    <Card size="sm" className="flex-1 max-w-[14rem]">
       <CardContent className="flex flex-col gap-1">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
           {label}
