@@ -1,11 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { useAppActions } from '@/store/AppContext'
 import {
   formatRelative,
   formatAbsolute,
-  truncateJobName,
   truncateBuildId,
 } from '@/lib/utils'
 
@@ -109,7 +107,7 @@ export function ActivityCard({ activity, isNew = false }) {
             className="text-sm font-medium text-foreground truncate"
             title={activity.title}
           >
-            {truncateJobName(activity.title)}
+            {activity.title}
           </span>
           {linkedBuild && activity.activity_type === 'build_completed' && (
             <StatusBadge status={linkedBuild.status} />
