@@ -17,7 +17,7 @@ function passRateColor(rate) {
   return 'text-red-600'
 }
 
-function StatTile({ label, value, valueClassName = 'text-foreground' }) {
+function StatTile({ label, value, valueClassName = 'text-foreground', sub }) {
   return (
     <Card className="flex-1 px-4 py-3">
       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -26,6 +26,11 @@ function StatTile({ label, value, valueClassName = 'text-foreground' }) {
       <div className={`mt-1 text-2xl font-semibold tabular-nums ${valueClassName}`}>
         {value}
       </div>
+      {sub && (
+        <div className="mt-0.5 text-xs text-amber-600 font-medium">
+          {sub}
+        </div>
+      )}
     </Card>
   )
 }
@@ -44,7 +49,8 @@ export function BuildStatTiles({ stats, loading }) {
     )
   }
 
-  const { total = 0, passRate = null, failed = 0, avgDurationMs = null } = stats || {}
+  const { total = 0, passRate = null, failed = 0, infraFailed = 0, avgDurationMs = null } = stats || {}
+  const infraSub = failed > 0 && infraFailed > 0 ? `${infraFailed} infra` : null
 
   return (
     <div className="flex items-stretch gap-3">
@@ -58,6 +64,7 @@ export function BuildStatTiles({ stats, loading }) {
         label="Failed"
         value={failed}
         valueClassName={failed > 0 ? 'text-red-600' : 'text-foreground'}
+        sub={infraSub}
       />
       <StatTile label="Avg Duration" value={formatDuration(avgDurationMs)} />
     </div>

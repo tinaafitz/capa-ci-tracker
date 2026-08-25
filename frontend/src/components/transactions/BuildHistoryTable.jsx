@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 import { FilterSelect } from '@/components/shared/FilterSelect'
 import {
   Pagination,
@@ -27,6 +28,32 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { formatRelative, formatAbsolute } from '@/lib/utils'
+
+/**
+ * Map a failure_class value to a short human label for the infra badge.
+ * infra_lease -> "lease", infra_auth -> "auth", etc.
+ */
+function infraClassLabel(failureClass) {
+  if (!failureClass) return 'infra'
+  if (failureClass.startsWith('infra_')) return failureClass.slice(6)
+  return failureClass // e.g. "aborted"
+}
+
+/**
+ * Badge shown on infra/harness failure builds.
+ * Uses amber styling to distinguish from red "Failed" status.
+ */
+function InfraBadge({ failureClass }) {
+  const label = infraClassLabel(failureClass)
+  return (
+    <Badge
+      variant="outline"
+      className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px]"
+    >
+      infra:{label}
+    </Badge>
+  )
+}
 
 function statusBorderClass(status) {
   switch (status) {
@@ -61,6 +88,8 @@ export function BuildHistoryTable({
   page,
   totalPages,
   filters,
+  hideInfra = false,
+  onHideInfraChange,
   onFiltersChange,
   onPageChange,
   onBuildClick,
@@ -129,6 +158,17 @@ export function BuildHistoryTable({
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
         size: 100,
+      },
+      {
+        id: 'class',
+        header: 'Class',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
+          if (!isInfra) return null
+          return <InfraBadge failureClass={row.original.failure_class} />
+        },
+        size: 110,
       },
       {
         id: 'tests',
@@ -226,6 +266,23 @@ export function BuildHistoryTable({
           value={filters.dateRange || '7d'}
           onChange={(v) => onFiltersChange({ ...filters, dateRange: v })}
         />
+
+        {/* Hide infra failures toggle */}
+        <label className="flex items-center gap-1.5 cursor-pointer select-none ml-auto">
+          <span className="relative inline-flex h-5 w-9 shrink-0">
+            <input
+              type="checkbox"
+              className="peer sr-only"
+              checked={hideInfra}
+              onChange={(e) => onHideInfraChange && onHideInfraChange(e.target.checked)}
+            />
+            <span className="absolute inset-0 rounded-full bg-muted transition-colors peer-checked:bg-amber-500" />
+            <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+          </span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            Hide infra failures
+          </span>
+        </label>
       </div>
 
       {/* Table */}

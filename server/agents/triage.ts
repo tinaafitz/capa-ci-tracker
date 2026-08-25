@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
 import { dbEvents } from '../triggers.js';
 import { run as runDiagnosis } from './diagnosis.js';
+import { isInfraClass } from './classify-failure.js';
 
 const AGENT_NAME = 'triage';
 
@@ -46,6 +47,9 @@ interface Build {
   ocp_version: string | null;
   test_failures: string; // JSON string in SQLite
   started_at: string | null;
+  failure_class: string | null;
+  failure_reason: string | null;
+  is_infra: number; // 0 or 1 (SQLite INTEGER)
 }
 
 // ============================================================
@@ -75,6 +79,41 @@ function computeSignature(testFailures: TestFailure[]): string {
 
   const hash = sha256Hex(normalized);
   return `${f.className || 'unknown'}::${f.name || 'unknown'}::${hash.substring(0, 16)}`;
+}
+
+// ============================================================
+// Infra Error Signature (normalized, volatile IDs stripped)
+// ============================================================
+
+/**
+ * For infra failures we want recurrences to collapse to the same ticket.
+ * Strip volatile identifiers (quota-slice names, region suffixes, cluster IDs,
+ * hex strings, UUIDs) so that "aws-3--us-east-1--quota-slice-335" and
+ * "aws-3--us-east-1--quota-slice-512" produce the same normalized text.
+ */
+function normalizeInfraReason(reason: string | null, failureClass: string): string {
+  if (!reason) return failureClass;
+  return reason
+    // quota-slice-NNN -> quota-slice
+    .replace(/quota-slice-\d+/gi, 'quota-slice')
+    // aws-N--region--quota-slice-NNN patterns
+    .replace(/aws-\d+--[\w-]+--quota-slice(?:-\d+)?/gi, 'quota-slice')
+    // UUID / cluster ID
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<UUID>')
+    // Hex addresses
+    .replace(/0x[0-9a-fA-F]+/g, '<ADDR>')
+    // Timestamps
+    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g, '<TS>')
+    // Port/line numbers
+    .replace(/:\d+/g, ':<N>')
+    .trim();
+}
+
+function computeInfraSignature(build: Build): string {
+  const cls = build.failure_class ?? 'infra_unknown';
+  const normalized = normalizeInfraReason(build.failure_reason, cls);
+  const hash = sha256Hex(normalized);
+  return `infra::${cls}::${hash.substring(0, 16)}`;
 }
 
 // ============================================================
@@ -156,8 +195,8 @@ const dedupCheckStmt = db.prepare(`
 
 const insertTicketStmt = db.prepare(`
   INSERT INTO support_tickets (id, title, description, status, severity,
-    build_id, error_signature, labels, created_at, updated_at)
-  VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)
+    assignee, build_id, error_signature, failure_class, labels, created_at, updated_at)
+  VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const getTicketStmt = db.prepare(`
@@ -195,8 +234,14 @@ async function triageBuild(buildId: string): Promise<{
     return { action: 'skipped' };
   }
 
+  const isInfra = build.is_infra === 1 || isInfraClass(build.failure_class ?? '');
   const testFailures: TestFailure[] = JSON.parse(build.test_failures || '[]');
-  const errorSignature = computeSignature(testFailures);
+
+  // Use infra-specific normalized signature for infra failures so recurrences dedup correctly.
+  // Use standard test-failure signature for product failures.
+  const errorSignature = isInfra
+    ? computeInfraSignature(build)
+    : computeSignature(testFailures);
 
   // 2. Dedup check -- SQLite is single-writer, no advisory lock needed
   const existing = dedupCheckStmt.get(errorSignature) as
@@ -232,14 +277,36 @@ async function triageBuild(buildId: string): Promise<{
   }
 
   // 3. No existing ticket -- create a new one (wrapped in transaction)
-  const severity = classifySeverity(build, testFailures);
+  const severity = isInfra ? 'infrastructure' : classifySeverity(build, testFailures);
+
+  // Infra assignee from env (default: unassigned)
+  const infraAssignee = process.env.INFRA_TICKET_ASSIGNEE ?? null;
+  const assignee = isInfra ? infraAssignee : null;
+
   const firstFailure = testFailures[0];
-  const title = firstFailure
-    ? `${firstFailure.className || build.job_name}: ${firstFailure.name || 'test failure'}`
-    : `${build.job_name} build #${build.external_id} failed`;
-  const description = firstFailure
-    ? `**Error:** ${firstFailure.errorMessage?.substring(0, 500) || 'No error message'}\n\n**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n**OCP Version:** ${build.ocp_version || 'unknown'}\n**Failed Tests:** ${build.fail_count}/${build.total_count}`
-    : `Build ${build.job_name} #${build.external_id} failed. ${build.fail_count} test failures out of ${build.total_count} total.`;
+
+  let title: string;
+  let description: string;
+
+  if (isInfra) {
+    const cls = build.failure_class ?? 'infra';
+    const reason = build.failure_reason ?? 'CI infrastructure failure';
+    title = `[Infra] ${cls.replace(/_/g, ' ')}: ${build.job_name}`;
+    description =
+      `**CI Infrastructure Failure — NOT a CAPA regression**\n\n` +
+      `**Class:** ${cls}\n` +
+      `**Reason:** ${reason.substring(0, 500)}\n\n` +
+      `**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n` +
+      `**OCP Version:** ${build.ocp_version || 'unknown'}\n` +
+      `**Tests Passed:** ${build.fail_count === 0 ? 'Yes' : 'No'}`;
+  } else {
+    title = firstFailure
+      ? `${firstFailure.className || build.job_name}: ${firstFailure.name || 'test failure'}`
+      : `${build.job_name} build #${build.external_id} failed`;
+    description = firstFailure
+      ? `**Error:** ${firstFailure.errorMessage?.substring(0, 500) || 'No error message'}\n\n**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n**OCP Version:** ${build.ocp_version || 'unknown'}\n**Failed Tests:** ${build.fail_count}/${build.total_count}`
+      : `Build ${build.job_name} #${build.external_id} failed. ${build.fail_count} test failures out of ${build.total_count} total.`;
+  }
 
   const newTicketId = uuidv4();
   const now = new Date().toISOString();
@@ -247,6 +314,7 @@ async function triageBuild(buildId: string): Promise<{
     [
       build.source,
       build.ocp_version ? `ocp-${build.ocp_version}` : null,
+      isInfra ? 'infra' : null,
     ].filter(Boolean),
   );
 
@@ -260,8 +328,10 @@ async function triageBuild(buildId: string): Promise<{
       title,
       description,
       severity,
+      assignee,
       build.id,
       errorSignature,
+      build.failure_class ?? null,
       labels,
       now,
       now,

@@ -71,6 +71,17 @@ export function BuildDetail({ build, open, onOpenChange }) {
 
   if (!build) return null
 
+  const isInfra = build.is_infra === 1 || build.is_infra === '1'
+  const failureClass = build.failure_class || null
+  const failureReason = build.failure_reason || null
+
+  // Short human label for infra badge (e.g. infra_lease -> "lease")
+  function infraLabel(cls) {
+    if (!cls) return 'infra'
+    if (cls.startsWith('infra_')) return cls.slice(6)
+    return cls
+  }
+
   const pass = build.pass_count || 0
   const fail = build.fail_count || 0
   const skip = build.skip_count || 0
@@ -110,6 +121,27 @@ export function BuildDetail({ build, open, onOpenChange }) {
 
           <ScrollArea className="flex-1">
             <div className="px-5 py-4 space-y-6">
+              {/* Infra classification notice — shown prominently when is_infra=1 */}
+              {isInfra && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 font-mono">
+                      infra:{infraLabel(failureClass)}
+                    </span>
+                    <span className="text-xs font-medium text-amber-800">
+                      CI infrastructure / harness failure
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-700">
+                    This is a CI infrastructure or harness failure, not a product test failure. It does not indicate a product regression.
+                  </p>
+                  {failureReason && (
+                    <p className="text-xs font-mono text-amber-600 break-all leading-relaxed">
+                      {failureReason}
+                    </p>
+                  )}
+                </div>
+              )}
               {/* 2. Test summary */}
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">

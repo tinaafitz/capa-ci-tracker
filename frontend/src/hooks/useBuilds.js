@@ -10,10 +10,11 @@ import { supabase } from '@/config/supabase'
  * @param {string} filterOptions.status - 'all' | specific build_status
  * @param {string} filterOptions.dateRange - '24h' | '7d' | '30d' | 'all'
  * @param {string} filterOptions.source - 'all' | 'jenkins' | 'prow'
+ * @param {boolean} filterOptions.hideInfra - When true, filter out infra/harness failures (is_infra=0)
  * @param {number} filterOptions.page - Page number (1-indexed)
  * @param {number} filterOptions.pageSize - Items per page (default: 20)
  */
-function buildBuildFilters({ job = 'all', status = 'all', dateRange = '7d', source = 'all' }) {
+function buildBuildFilters({ job = 'all', status = 'all', dateRange = '7d', source = 'all', hideInfra = false }) {
   const f = {}
 
   if (job !== 'all') {
@@ -49,6 +50,10 @@ function buildBuildFilters({ job = 'all', status = 'all', dateRange = '7d', sour
     }
   }
 
+  if (hideInfra) {
+    f.is_infra = 0
+  }
+
   return f
 }
 
@@ -58,13 +63,14 @@ export function useBuilds(filterOptions = {}) {
     status = 'all',
     dateRange = '7d',
     source = 'all',
+    hideInfra = false,
     page = 1,
     pageSize = 20,
   } = filterOptions
 
   const filters = useMemo(
-    () => buildBuildFilters({ job, status, dateRange, source }),
-    [job, status, dateRange, source]
+    () => buildBuildFilters({ job, status, dateRange, source, hideInfra }),
+    [job, status, dateRange, source, hideInfra]
   )
 
   const offset = (page - 1) * pageSize
@@ -90,9 +96,9 @@ export function useBuilds(filterOptions = {}) {
 
 /**
  * Fetch unpaginated builds matching the same filters as the table and
- * compute KPI stats (total, pass rate, failed count, avg duration).
+ * compute KPI stats (total, pass rate, failed count, avg duration, infraFailed count).
  *
- * @param {Object} filterOptions - { job, status, dateRange, source }
+ * @param {Object} filterOptions - { job, status, dateRange, source, hideInfra }
  */
 export function useBuildStats(filterOptions = {}) {
   const {
@@ -100,19 +106,24 @@ export function useBuildStats(filterOptions = {}) {
     status = 'all',
     dateRange = '7d',
     source = 'all',
+    // hideInfra is intentionally ignored here: stats always count all builds
+    // (including infra) so the "N infra" sub-count is always visible regardless
+    // of the hide toggle.
   } = filterOptions
 
   const [stats, setStats] = useState({
     total: 0,
     passRate: null,
     failed: 0,
+    infraFailed: 0,
     avgDurationMs: null,
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // Always fetch without hideInfra so we can compute infraFailed count regardless
   const filters = useMemo(
-    () => buildBuildFilters({ job, status, dateRange, source }),
+    () => buildBuildFilters({ job, status, dateRange, source, hideInfra: false }),
     [job, status, dateRange, source]
   )
 
@@ -124,7 +135,7 @@ export function useBuildStats(filterOptions = {}) {
       try {
         let query = supabase
           .from('builds')
-          .select('status, duration_ms')
+          .select('status, duration_ms, is_infra')
           .limit(2000)
 
         for (const [key, value] of Object.entries(filters)) {
@@ -143,7 +154,7 @@ export function useBuildStats(filterOptions = {}) {
 
         if (fetchError) {
           setError(fetchError)
-          setStats({ total: 0, passRate: null, failed: 0, avgDurationMs: null })
+          setStats({ total: 0, passRate: null, failed: 0, infraFailed: 0, avgDurationMs: null })
           return
         }
 
@@ -151,12 +162,16 @@ export function useBuildStats(filterOptions = {}) {
         const total = rows.length
         let passed = 0
         let failed = 0
+        let infraFailed = 0
         let durationSum = 0
         let durationCount = 0
 
         for (const row of rows) {
           if (row.status === 'success') passed += 1
-          else if (row.status === 'failure') failed += 1
+          else if (row.status === 'failure') {
+            failed += 1
+            if (row.is_infra === 1 || row.is_infra === '1') infraFailed += 1
+          }
 
           if (row.duration_ms != null) {
             durationSum += row.duration_ms
@@ -168,13 +183,14 @@ export function useBuildStats(filterOptions = {}) {
           total,
           passRate: total > 0 ? Math.round((passed / total) * 100) : null,
           failed,
+          infraFailed,
           avgDurationMs: durationCount > 0 ? Math.round(durationSum / durationCount) : null,
         })
         setError(null)
       } catch (err) {
         if (!cancelled) {
           setError(err)
-          setStats({ total: 0, passRate: null, failed: 0, avgDurationMs: null })
+          setStats({ total: 0, passRate: null, failed: 0, infraFailed: 0, avgDurationMs: null })
         }
       } finally {
         if (!cancelled) setLoading(false)

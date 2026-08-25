@@ -57,8 +57,8 @@ const ALLOWED = new Set([...TABLES, ...VIEWS]);
 // ---------------------------------------------------------------------------
 
 const TABLE_COLUMNS: Record<string, Set<string>> = {
-  builds: new Set(['id','source','external_id','job_name','job_url','status','pass_count','fail_count','skip_count','total_count','duration_ms','started_at','finished_at','ocp_version','parameters','test_failures','raw_payload','log_fetched','created_at','updated_at']),
-  support_tickets: new Set(['id','ticket_number','title','description','status','severity','assignee','error_signature','root_cause','root_cause_category','matched_pattern','fix_pr_url','fix_pr_number','upstream_issue_url','jira_key','labels','build_id','verified_in_build_id','streak_id','signature_cleared_in_build_id','diagnosed_at','pr_merged_at','resolved_at','verified_at','created_at','updated_at']),
+  builds: new Set(['id','source','external_id','job_name','job_url','status','pass_count','fail_count','skip_count','total_count','duration_ms','started_at','finished_at','ocp_version','parameters','test_failures','raw_payload','log_fetched','failure_class','failure_reason','is_infra','created_at','updated_at']),
+  support_tickets: new Set(['id','ticket_number','title','description','status','severity','assignee','error_signature','root_cause','root_cause_category','matched_pattern','fix_pr_url','fix_pr_number','upstream_issue_url','jira_key','labels','build_id','verified_in_build_id','streak_id','signature_cleared_in_build_id','failure_class','diagnosed_at','pr_merged_at','resolved_at','verified_at','created_at','updated_at']),
   activities: new Set(['id','activity_type','title','description','build_id','ticket_id','actor','metadata','created_at']),
   tasks: new Set(['id','ticket_id','title','status','assignee','sort_order','created_at','completed_at']),
   agent_runs: new Set(['id','agent_name','trigger_source','input_payload','output_payload','success','error_message','duration_ms','created_at']),

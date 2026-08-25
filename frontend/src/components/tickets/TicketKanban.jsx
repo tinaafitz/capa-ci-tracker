@@ -6,6 +6,15 @@ import { SeverityBadge } from './SeverityBadge'
 import { TICKET_STATUSES } from './TicketStatusBadge'
 
 /**
+ * Short label from failure_class for infra badge (infra_lease -> "lease").
+ */
+function infraClassLabel(cls) {
+  if (!cls) return 'infra'
+  if (cls.startsWith('infra_')) return cls.slice(6)
+  return cls
+}
+
+/**
  * Status column configuration — display labels and dot colors for each status.
  * Colors are intentionally kept in sync with TicketStatusBadge so the board
  * reads consistently with badge styling elsewhere in the app.
@@ -97,9 +106,19 @@ function TicketCard({ ticket, onClick }) {
           {ticket.title}
         </p>
 
-        {/* Row 3: Severity badge + assignee */}
+        {/* Row 3: Severity badge + optional infra badge + assignee */}
         <div className="flex items-center justify-between gap-2">
-          <SeverityBadge severity={ticket.severity} />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <SeverityBadge severity={ticket.severity} />
+            {(ticket.is_infra === 1 || ticket.is_infra === '1') && (
+              <Badge
+                variant="outline"
+                className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px] h-5"
+              >
+                infra:{infraClassLabel(ticket.failure_class || ticket.build_failure_class)}
+              </Badge>
+            )}
+          </div>
           {ticket.assignee ? (
             <span className="text-xs text-muted-foreground truncate max-w-[100px]">
               @{ticket.assignee}

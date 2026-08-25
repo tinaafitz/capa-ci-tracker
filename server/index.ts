@@ -11,6 +11,7 @@ import './db/connection.js';
 // Import routers
 import { tableRouter } from './api/router.js';
 import { rpcRouter } from './api/rpc.js';
+import { ingestRouter } from './api/ingest.js';
 
 // Import trigger event bus and wire agent handlers
 import { dbEvents } from './triggers.js';
@@ -55,6 +56,7 @@ if (apiKey) {
 
 // Mount API routes
 app.use('/api/rpc', rpcRouter);
+app.use('/api', ingestRouter);
 app.use('/api', tableRouter);
 
 // Serve static frontend in production
