@@ -136,13 +136,17 @@ export function PipelinePage() {
           </div>
 
           <TabsContent value="funnel" className="px-6 py-5 space-y-5">
-            <PipelineSlaTiles tickets={tickets} loading={ticketsLoading} />
-            <PipelineFunnel
-              data={funnelData}
-              loading={funnelLoading}
-              selectedStage={selectedStage}
-              onStageSelect={handleStageSelect}
-            />
+            <div className="max-w-5xl">
+              <PipelineSlaTiles tickets={tickets} loading={ticketsLoading} />
+            </div>
+            <div className="max-w-5xl">
+              <PipelineFunnel
+                data={funnelData}
+                loading={funnelLoading}
+                selectedStage={selectedStage}
+                onStageSelect={handleStageSelect}
+              />
+            </div>
             <PipelineTicketList
               tickets={tickets}
               loading={ticketsLoading}

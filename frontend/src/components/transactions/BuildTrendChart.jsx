@@ -50,30 +50,27 @@ function ChartTooltip({ active, payload, label }) {
 export function BuildTrendChart({ data, loading }) {
   if (loading) {
     return (
-      <div className="space-y-2">
+      <div className="min-w-0 flex-1 space-y-1.5">
         <Skeleton className="h-4 w-48" />
-        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-32 w-full" />
       </div>
     )
   }
 
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-sm text-muted-foreground border border-dashed border-border rounded-md">
+      <div className="min-w-0 flex-1 flex items-center justify-center h-32 text-sm text-muted-foreground border border-dashed border-border rounded-md">
         No build data available for the selected period.
       </div>
     )
   }
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium text-foreground">
-        Build Trend (Last 30 Days)
-      </h3>
-      <ResponsiveContainer width="100%" height={200}>
+    <div className="min-w-0 flex-1">
+      <ResponsiveContainer width="100%" height={130}>
         <BarChart
           data={data}
-          margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+          margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
         >
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
           <XAxis
@@ -91,8 +88,9 @@ export function BuildTrendChart({ data, loading }) {
             cursor={{ fill: 'rgba(148, 163, 184, 0.15)' }}
           />
           <Legend
-            iconSize={10}
-            wrapperStyle={{ fontSize: '12px' }}
+            iconSize={9}
+            height={20}
+            wrapperStyle={{ fontSize: '11px' }}
           />
           <Bar
             dataKey="pass"

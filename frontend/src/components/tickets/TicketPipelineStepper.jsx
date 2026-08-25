@@ -165,7 +165,7 @@ export function TicketPipelineStepper({
   }
 
   return (
-    <div className="flex items-start gap-0">
+    <div className="flex items-start gap-0 max-w-2xl">
       {STAGES.map((stage, i) => {
         const timestamp = getStageTimestamp(stage, props)
         const link = getStageLink(stage, props)
@@ -175,7 +175,7 @@ export function TicketPipelineStepper({
         const isFuture = i >= currentStage
 
         return (
-          <div key={stage.key} className="flex items-start flex-1 min-w-0">
+          <div key={stage.key} className="flex items-start flex-1 min-w-0 max-w-[8rem]">
             {/* Stage node + connector */}
             <div className="flex flex-col items-center">
               {/* Dot */}

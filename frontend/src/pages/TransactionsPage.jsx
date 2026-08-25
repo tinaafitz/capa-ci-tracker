@@ -20,6 +20,7 @@ export function TransactionsPage() {
     dateRange: '7d',
   }))
   const [hideInfra, setHideInfra] = useState(false)
+  const [showTrend, setShowTrend] = useState(false)
   const [page, setPage] = useState(1)
 
   const { data: builds, loading, count, totalPages, refetch: refetchBuilds } = useBuilds({
@@ -48,7 +49,7 @@ export function TransactionsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="px-6 py-4 border-b border-border bg-background shrink-0">
+      <div className="px-6 py-2.5 border-b border-border bg-background shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Builds</h2>
           <RefreshIngestButton onRefreshed={refetchBuilds} />
@@ -56,12 +57,34 @@ export function TransactionsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto px-6 py-4 space-y-6">
-        {/* KPI stat tiles */}
+      <div className="flex-1 overflow-auto px-6 py-3 space-y-3">
+        {/* Compact KPI stat strip (one line). Trend chart is collapsed by default
+            so the builds table is visible without scrolling. */}
         <BuildStatTiles stats={stats} loading={statsLoading} />
 
-        {/* Trend Chart */}
-        <BuildTrendChart data={trendData} loading={trendLoading} />
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowTrend((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+            aria-expanded={showTrend}
+          >
+            <svg
+              className={`h-3 w-3 transition-transform ${showTrend ? 'rotate-90' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Build Trend (Last 30 Days)
+          </button>
+          {showTrend && (
+            <div className="mt-2">
+              <BuildTrendChart data={trendData} loading={trendLoading} />
+            </div>
+          )}
+        </div>
 
         <Separator />
 

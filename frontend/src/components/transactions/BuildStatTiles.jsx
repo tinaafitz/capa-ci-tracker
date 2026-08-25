@@ -19,30 +19,35 @@ function passRateColor(rate) {
 
 function StatTile({ label, value, valueClassName = 'text-foreground', sub }) {
   return (
-    <Card className="flex-1 px-4 py-3">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        {label}
+    <Card className="flex-1 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+          {label}
+        </span>
+        {sub && (
+          <span className="text-[11px] text-amber-600 font-medium whitespace-nowrap">
+            {sub}
+          </span>
+        )}
       </div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${valueClassName}`}>
+      <div className={`mt-0.5 text-2xl font-semibold tabular-nums leading-tight ${valueClassName}`}>
         {value}
       </div>
-      {sub && (
-        <div className="mt-0.5 text-xs text-amber-600 font-medium">
-          {sub}
-        </div>
-      )}
     </Card>
   )
 }
 
 export function BuildStatTiles({ stats, loading }) {
+  // Full-width single row of tiles: comfortable height, but far shorter than the old 2xl stacked cards.
+  const gridClass = 'grid grid-cols-2 sm:grid-cols-4 gap-3'
+
   if (loading) {
     return (
-      <div className="flex items-stretch gap-3">
+      <div className={gridClass}>
         {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="flex-1 px-4 py-3">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="mt-2 h-7 w-16" />
+          <Card key={i} className="px-4 py-2.5">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="mt-1.5 h-6 w-12" />
           </Card>
         ))}
       </div>
@@ -53,7 +58,7 @@ export function BuildStatTiles({ stats, loading }) {
   const infraSub = failed > 0 && infraFailed > 0 ? `${infraFailed} infra` : null
 
   return (
-    <div className="flex items-stretch gap-3">
+    <div className={gridClass}>
       <StatTile label="Total Builds" value={total} />
       <StatTile
         label="Pass Rate"

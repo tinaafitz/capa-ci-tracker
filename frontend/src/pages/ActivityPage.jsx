@@ -27,7 +27,7 @@ export function ActivityPage() {
       const saved = localStorage.getItem('activity-filters')
       if (saved) return JSON.parse(saved)
     } catch {}
-    return { type: 'all', dateRange: '24h', ticket: 'all' }
+    return { type: 'all', dateRange: '30d', ticket: 'all' }
   })
 
   const [newEventCount, setNewEventCount] = useState(0)
