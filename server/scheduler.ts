@@ -79,59 +79,123 @@ export interface IngestResult {
   message?: string;
   jenkins?: AgentResult;
   prow?: AgentResult;
+  /** Which sources were actually run this call (echoes the request). */
+  sources?: { jenkins: boolean; prow: boolean };
+}
+
+/** Which ingest sources to run. Both default to true (preserves old callers). */
+export interface IngestSources {
+  jenkins?: boolean;
+  prow?: boolean;
+}
+
+// Overall per-source wall-clock guard. This is the outer safety net that bounds
+// the whole HTTP request (the endpoint awaits runIngestOnce before responding).
+// Even with the per-job guard in the Jenkins agent, this guarantees the request
+// resolves and — critically — that the running guard is released via `finally`
+// so a wedged run cannot permanently 409-lock future refreshes. Env-overridable
+// via INGEST_RUN_TIMEOUT_MS (default 300s = 5min).
+const INGEST_RUN_TIMEOUT_MS = (() => {
+  const raw = process.env.INGEST_RUN_TIMEOUT_MS;
+  if (!raw) return 300_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 300_000;
+})();
+
+/**
+ * Run an ingest agent under a wall-clock timeout, never throwing. On timeout,
+ * resolves to a synthesized failed AgentResult (rather than rejecting) so the
+ * caller's `finally` still runs and the endpoint returns a clean failure.
+ * Clears the timer on the winning branch to avoid a dangling handle.
+ */
+async function runAgentWithTimeout(
+  label: string,
+  agent: () => Promise<AgentResult>,
+): Promise<AgentResult> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      agent().catch(err => ({
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      })),
+      new Promise<AgentResult>((resolve) => {
+        timeoutHandle = setTimeout(
+          () => resolve({ success: false, message: `${label} ingest timed out` }),
+          INGEST_RUN_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 }
 
 /**
- * runIngestOnce — runs both ingest agents sequentially with overlap guards.
+ * runIngestOnce — runs the requested ingest agent(s) sequentially with overlap
+ * guards and per-source wall-clock timeouts.
+ *
+ * `sources` selects which agents to run (both default true, preserving the cron
+ * and no-arg callers). Each requested source has its own running-guard: if the
+ * requested source is already running, returns ok:false + reason 'running'; a
+ * busy *other* source does NOT block the requested one.
  *
  * Returns immediately with ok:false + a typed reason if ingest is disabled
- * ('disabled') or already running ('running'). When the agents actually run,
- * `ok` is derived from their combined success (jenkins.success && prow.success)
- * and no `reason` is set — so a fully-failed run reports ok:false with no reason.
+ * ('disabled') or the requested source(s) are already running ('running'). When
+ * the agents actually run, `ok` is derived from their combined success (only the
+ * sources that ran count) and no `reason` is set.
  */
-export async function runIngestOnce(): Promise<IngestResult> {
+export async function runIngestOnce(sources?: IngestSources): Promise<IngestResult> {
+  const runJenkins = sources?.jenkins ?? true;
+  const runProw = sources?.prow ?? true;
+  const ranSources = { jenkins: runJenkins, prow: runProw };
+
   const disableIngest = process.env.DISABLE_INGEST === 'true';
   if (disableIngest) {
-    return { ok: false, reason: 'disabled', message: 'ingest disabled' };
+    return { ok: false, reason: 'disabled', message: 'ingest disabled', sources: ranSources };
   }
 
-  if (jenkinsRunning || prowRunning) {
-    return { ok: false, reason: 'running', message: 'ingest already running' };
+  // Only 409 if a REQUESTED source is already running. A busy source we're not
+  // asked to run must not block the one we are.
+  if ((runJenkins && jenkinsRunning) || (runProw && prowRunning)) {
+    return { ok: false, reason: 'running', message: 'ingest already running', sources: ranSources };
   }
 
-  jenkinsRunning = true;
-  prowRunning = true;
+  let jenkinsResult: AgentResult | undefined;
+  let prowResult: AgentResult | undefined;
 
-  let jenkinsResult: AgentResult;
-  let prowResult: AgentResult;
-
-  try {
-    console.log('[ingest] ingest-jenkins starting');
-    jenkinsResult = await ingestJenkins().catch(err => ({
-      success: false,
-      message: err instanceof Error ? err.message : String(err),
-    }));
-    console.log(`[ingest] ingest-jenkins done: ${jenkinsResult.success ? 'ok' : jenkinsResult.message}`);
-  } finally {
-    jenkinsRunning = false;
+  if (runJenkins) {
+    jenkinsRunning = true;
+    try {
+      console.log('[ingest] ingest-jenkins starting');
+      jenkinsResult = await runAgentWithTimeout('jenkins', ingestJenkins);
+      console.log(`[ingest] ingest-jenkins done: ${jenkinsResult.success ? 'ok' : jenkinsResult.message}`);
+    } finally {
+      jenkinsRunning = false;
+    }
   }
 
-  try {
-    console.log('[ingest] ingest-prow starting');
-    prowResult = await ingestProw().catch(err => ({
-      success: false,
-      message: err instanceof Error ? err.message : String(err),
-    }));
-    console.log(`[ingest] ingest-prow done: ${prowResult.success ? 'ok' : prowResult.message}`);
-  } finally {
-    prowRunning = false;
+  if (runProw) {
+    prowRunning = true;
+    try {
+      console.log('[ingest] ingest-prow starting');
+      prowResult = await runAgentWithTimeout('prow', ingestProw);
+      console.log(`[ingest] ingest-prow done: ${prowResult.success ? 'ok' : prowResult.message}`);
+    } finally {
+      prowRunning = false;
+    }
   }
 
-  // Derive top-level ok from the ACTUAL agent results. If either agent failed
-  // internally, ok is false (with no reason) so the endpoint reports a genuine
-  // failure rather than a misleading success.
-  const ok = jenkinsResult!.success && prowResult!.success;
-  return { ok, jenkins: jenkinsResult!, prow: prowResult! };
+  // Derive top-level ok from the ACTUAL agent results — but only from sources
+  // that actually ran. A source that wasn't requested doesn't drag ok to false.
+  const ok =
+    (!runJenkins || jenkinsResult!.success) &&
+    (!runProw || prowResult!.success);
+
+  const result: IngestResult = { ok, sources: ranSources };
+  if (jenkinsResult) result.jenkins = jenkinsResult;
+  if (prowResult) result.prow = prowResult;
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,41 +228,45 @@ export function startScheduler(): void {
   const jenkinsCron = resolveExpr('INGEST_JENKINS_CRON', DEFAULT_JENKINS_CRON);
   const prowCron = resolveExpr('INGEST_PROW_CRON', DEFAULT_PROW_CRON);
 
-  // ingest-jenkins: daily at 05:00 UTC (env-overridable via INGEST_JENKINS_CRON)
+  // ingest-jenkins: daily at 05:00 UTC (env-overridable via INGEST_JENKINS_CRON).
+  //
+  // Delegates to runIngestOnce so the scheduled path gets the SAME overall-run
+  // wall-clock timeout and guaranteed guard release as the manual
+  // /api/refresh-ingest path. runIngestOnce owns the running guard and the
+  // 'running'/'disabled' short-circuits, so we must NOT set jenkinsRunning here
+  // (that would double-acquire and self-409).
   cron.schedule(jenkinsCron, async () => {
-    if (jenkinsRunning || prowRunning) {
-      console.log('[cron] ingest-jenkins already running, skipping');
-      return;
-    }
-    jenkinsRunning = true;
-    try {
-      console.log('[cron] ingest-jenkins starting');
-      const result = await ingestJenkins().catch(err => ({
-        success: false,
-        message: err instanceof Error ? err.message : String(err),
-      }));
-      console.log(`[cron] ingest-jenkins done: ${result.success ? 'ok' : result.message}`);
-    } finally {
-      jenkinsRunning = false;
+    console.log('[cron] ingest-jenkins starting');
+    const result = await runIngestOnce({ jenkins: true, prow: false }).catch(err => ({
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+    if (result.ok) {
+      console.log('[cron] ingest-jenkins done: ok');
+    } else {
+      const reason = 'reason' in result ? result.reason : undefined;
+      const agentMsg = 'jenkins' in result ? result.jenkins?.message : undefined;
+      const detail = reason ?? agentMsg ?? result.message ?? 'failed';
+      console.log(`[cron] ingest-jenkins done: ${detail}`);
     }
   }, { timezone: 'UTC' });
 
-  // ingest-prow: daily at 05:02 UTC (env-overridable via INGEST_PROW_CRON)
+  // ingest-prow: daily at 05:02 UTC (env-overridable via INGEST_PROW_CRON).
+  // Same delegation as Jenkins above — bounded by the overall-run timeout, with
+  // the running guard managed entirely by runIngestOnce.
   cron.schedule(prowCron, async () => {
-    if (jenkinsRunning || prowRunning) {
-      console.log('[cron] ingest-prow already running, skipping');
-      return;
-    }
-    prowRunning = true;
-    try {
-      console.log('[cron] ingest-prow starting');
-      const result = await ingestProw().catch(err => ({
-        success: false,
-        message: err instanceof Error ? err.message : String(err),
-      }));
-      console.log(`[cron] ingest-prow done: ${result.success ? 'ok' : result.message}`);
-    } finally {
-      prowRunning = false;
+    console.log('[cron] ingest-prow starting');
+    const result = await runIngestOnce({ jenkins: false, prow: true }).catch(err => ({
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    }));
+    if (result.ok) {
+      console.log('[cron] ingest-prow done: ok');
+    } else {
+      const reason = 'reason' in result ? result.reason : undefined;
+      const agentMsg = 'prow' in result ? result.prow?.message : undefined;
+      const detail = reason ?? agentMsg ?? result.message ?? 'failed';
+      console.log(`[cron] ingest-prow done: ${detail}`);
     }
   }, { timezone: 'UTC' });
 
