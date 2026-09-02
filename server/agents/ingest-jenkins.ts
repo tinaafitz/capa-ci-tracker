@@ -20,14 +20,37 @@ export interface AgentResult {
   results?: Record<string, { ingested: number; skipped: number; errors: string[] }>;
 }
 
-// Jenkins job names to poll
-const JENKINS_JOBS = [
-  'capi_tests',
-  'capi_nightly',
-  'rosa_hcp_e2e',
-  'capa_e2e_nightly',
-  'capa_upgrade_tests',
-];
+// Jenkins job names to poll.
+//
+// Only `capi_tests` is a real job today; the other historical names 404. The
+// list is env-overridable via JENKINS_JOBS (comma-separated), mirroring the
+// env-driven config pattern used in ingest-prow.ts (PROW_API_URL). Empty/blank
+// entries are trimmed and dropped; an empty/unset env var falls back to the
+// default of a single job.
+const DEFAULT_JENKINS_JOBS = ['capi_tests'];
+
+const JENKINS_JOBS = (() => {
+  const raw = process.env.JENKINS_JOBS;
+  if (!raw) return DEFAULT_JENKINS_JOBS;
+  const parsed = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return parsed.length > 0 ? parsed : DEFAULT_JENKINS_JOBS;
+})();
+
+// Per-job wall-clock guard. AbortSignal.timeout on individual requests does not
+// reliably abort a stalled TLS read (see fetchJenkins note above), and a single
+// job serially awaits up to ~20 test-report fetches (each up to 60s), so one
+// wedged job could otherwise hang the whole run indefinitely. This bounds total
+// time spent in any single ingestJob() call. Env-overridable via
+// JENKINS_JOB_TIMEOUT_MS (default 90s).
+const JOB_TIMEOUT_MS = (() => {
+  const raw = process.env.JENKINS_JOB_TIMEOUT_MS;
+  if (!raw) return 90_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
+})();
 
 interface JenkinsBuild {
   number: number;
@@ -421,10 +444,36 @@ export async function run(): Promise<AgentResult> {
     const allResults: Record<string, { ingested: number; skipped: number; errors: string[] }> = {};
 
     for (const jobName of JENKINS_JOBS) {
-      const result = await ingestJob(jobName, JENKINS_BASE_URL, JENKINS_USER, JENKINS_API_TOKEN);
-      allResults[jobName] = result;
-      if (result.errors.length > 0) {
+      // Wall-clock guard around each job. A wedged job rejects the race after
+      // JOB_TIMEOUT_MS; the catch below records it, flips overallSuccess, and
+      // the loop continues to the next job (same path as any ingestJob error).
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          ingestJob(jobName, JENKINS_BASE_URL, JENKINS_USER, JENKINS_API_TOKEN),
+          new Promise<never>((_resolve, reject) => {
+            timeoutHandle = setTimeout(
+              () => reject(new Error(`job ${jobName} timed out after ${JOB_TIMEOUT_MS}ms`)),
+              JOB_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        allResults[jobName] = result;
+        if (result.errors.length > 0) {
+          overallSuccess = false;
+        }
+      } catch (err) {
+        // Timeout (or an unexpected throw from ingestJob) — record and move on.
+        allResults[jobName] = {
+          ingested: 0,
+          skipped: 0,
+          errors: [err instanceof Error ? err.message : String(err)],
+        };
         overallSuccess = false;
+      } finally {
+        // Clear the timer on the winning branch so no dangling handle keeps the
+        // event loop (and process) alive after the job completes.
+        if (timeoutHandle) clearTimeout(timeoutHandle);
       }
     }
 

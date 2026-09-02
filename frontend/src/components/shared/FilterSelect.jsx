@@ -30,13 +30,14 @@ export function FilterSelect({
   placeholder,
   className = '',
   triggerClassName = '',
+  ...rest
 }) {
   const selectedLabel =
     options.find((o) => o.value === value)?.label ?? placeholder ?? value
 
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className={triggerClassName || className}>
+      <SelectTrigger className={triggerClassName || className} {...rest}>
         <SelectValue placeholder={placeholder}>
           {selectedLabel}
         </SelectValue>
