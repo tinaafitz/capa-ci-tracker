@@ -131,10 +131,25 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
         id: 'title',
         accessorKey: 'title',
         header: 'Title',
-        size: 260,
-        cell: ({ row }) => (
-          <span className="text-sm line-clamp-1 text-foreground/90">{row.original.title}</span>
-        ),
+        size: 340,
+        cell: ({ row }) => {
+          const jiraKey = row.original.jira_key
+          const jobName = row.original.build_job_name
+          return (
+            <div className="min-w-0" title={row.original.title}>
+              <span className="block text-sm line-clamp-1 text-foreground/90">
+                {row.original.title}
+              </span>
+              {(jiraKey || jobName) && (
+                <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {jiraKey && <span className="font-mono">{jiraKey}</span>}
+                  {jiraKey && jobName && <span className="text-muted-foreground/40">·</span>}
+                  {jobName && <span className="truncate">{jobName}</span>}
+                </span>
+              )}
+            </div>
+          )
+        },
       },
       {
         id: 'severity',
@@ -175,7 +190,7 @@ export function PipelineTicketList({ tickets, loading, onTicketClick }) {
       {
         id: 'pipeline',
         header: 'Progress',
-        size: 180,
+        size: 150,
         enableSorting: false,
         cell: ({ row }) => (
           <div className="w-full min-w-[7rem] pr-2">
