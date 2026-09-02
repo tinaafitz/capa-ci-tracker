@@ -11,6 +11,9 @@ import { supabase } from '@/config/supabase'
  * @param {Object} options.filters - Key-value pairs for filter operators
  * @param {string} options.orderBy - Column to order by (default: 'created_at')
  * @param {boolean} options.ascending - Sort direction (default: false = DESC)
+ * @param {string} options.secondaryOrderBy - Optional secondary/tie-break column (default: null).
+ *   Use e.g. 'rowid' on base tables for a deterministic insertion-order tie-break.
+ * @param {boolean} options.secondaryAscending - Secondary sort direction (default: false = DESC)
  * @param {number} options.limit - Max rows to fetch (default: 100)
  * @param {number} options.offset - Offset for pagination (default: 0)
  * @param {string} options.select - Columns to select (default: '*')
@@ -23,6 +26,8 @@ export function useRealtimeTable(table, options = {}) {
     filters = {},
     orderBy = 'created_at',
     ascending = false,
+    secondaryOrderBy = null,
+    secondaryAscending = false,
     limit = 100,
     offset = 0,
     select = '*',
@@ -45,7 +50,14 @@ export function useRealtimeTable(table, options = {}) {
         .from(table)
         .select(select, { count: 'exact' })
         .order(orderBy, { ascending })
-        .range(offset, offset + limit - 1)
+
+      // Optional deterministic tie-break (e.g. rowid for insertion order).
+      // Chained before .range so it becomes the second comma-separated order key.
+      if (secondaryOrderBy) {
+        query = query.order(secondaryOrderBy, { ascending: secondaryAscending })
+      }
+
+      query = query.range(offset, offset + limit - 1)
 
       const parsedFilters = JSON.parse(filtersKey)
       for (const [key, value] of Object.entries(parsedFilters)) {
@@ -90,7 +102,7 @@ export function useRealtimeTable(table, options = {}) {
     } finally {
       setLoading(false)
     }
-  }, [table, select, orderBy, ascending, limit, offset, filtersKey])
+  }, [table, select, orderBy, ascending, secondaryOrderBy, secondaryAscending, limit, offset, filtersKey])
 
   // Initial fetch
   useEffect(() => {

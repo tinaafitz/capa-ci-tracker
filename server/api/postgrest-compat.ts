@@ -87,6 +87,13 @@ function isSafeIdentifier(name: string): boolean {
 
 const RESERVED_KEYS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or']);
 
+// Base ROWID tables that expose SQLite's implicit `rowid` pseudo-column and may
+// use it as a deterministic, insertion-order secondary sort key in ORDER BY.
+// Views (v_*) and aggregate/GROUP BY relations have NO rowid — ordering by
+// rowid there is a SQL error — so rowid is silently dropped for anything not
+// in this allow-list. Add a table here only if it is an ordinary (rowid) table.
+const ROWID_ORDER_TABLES = new Set(['activities']);
+
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -376,6 +383,19 @@ export function parseRequest(req: Request, tableName: string): ParsedQuery {
       const [col, dir] = part.split('.');
       if (!isSafeIdentifier(col)) continue; // skip malformed column names
       const direction = dir?.toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+      // `rowid` is SQLite's implicit insertion-order pseudo-column. It only
+      // exists on ordinary (rowid) base tables — never on views or aggregate
+      // relations, where referencing it errors. Emit it (table-qualified but
+      // NOT column-quoted, so it resolves as the pseudo-column) ONLY for
+      // allow-listed base tables; silently drop it everywhere else.
+      if (col === 'rowid') {
+        if (ROWID_ORDER_TABLES.has(tableName)) {
+          orderClauses.push(`"${tableName}".rowid ${direction}`);
+        }
+        continue;
+      }
+
       // For views/tables, qualify column to avoid ambiguity
       orderClauses.push(`"${tableName}"."${col}" ${direction}`);
     }

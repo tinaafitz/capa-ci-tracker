@@ -63,6 +63,16 @@ export function useActivities(filterOptions = {}) {
     filters,
     orderBy: 'created_at',
     ascending: false,
+    // Deterministic tie-break: when two activities share the exact same
+    // created_at (e.g. build_completed + its ticket_created for one CI event),
+    // rowid (SQLite implicit insertion order) keeps the later-inserted ticket
+    // above the earlier-inserted build. activities is a base ROWID table.
+    // Caveat: rowid tracks SQLite insertion order, giving a deterministic
+    // tie-break for same-timestamp activities. SQLite may reassign rowids on
+    // VACUUM/dump-restore; this app never runs VACUUM. Even after a rebuild the
+    // ordering stays deterministic -- it just may not match original insertion.
+    secondaryOrderBy: 'rowid',
+    secondaryAscending: false,
     limit,
     select: '*, support_tickets:ticket_id(id, ticket_number, title, status, assignee), builds:build_id(id, external_id, job_name, status)',
     realtime: true,
