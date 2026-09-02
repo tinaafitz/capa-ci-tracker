@@ -121,7 +121,7 @@ INSERT OR IGNORE INTO activities (id, activity_type, title, description, build_i
  'Auto-created by triage agent. Severity: infrastructure. Error signature: infra::infra_auth::ddb59efff6a4b8f1',
  'b0000831-0000-0000-0000-000000000336', '70000831-0000-0000-0000-000000000336', 'triage-agent',
  '{"error_signature":"infra::infra_auth::ddb59efff6a4b8f1","severity":"infrastructure","failure_class":"infra_auth"}',
- '2026-08-31T17:24:21Z'),
+ '2026-08-31T17:24:38Z'),
 
 -- Build B (Prow success, Aug 31)
 ('ac000831-0000-0000-0000-000000000003', 'build_completed',
