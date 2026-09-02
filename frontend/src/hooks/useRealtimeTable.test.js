@@ -89,6 +89,71 @@ describe('useRealtimeTable', () => {
     expect(mockQueryBuilder.range).toHaveBeenCalledWith(20, 29) // offset + limit - 1
   })
 
+  describe('secondary order (tie-break)', () => {
+    it('chains a second order key when secondaryOrderBy is provided', async () => {
+      renderHook(() =>
+        useRealtimeTable('activities', {
+          orderBy: 'created_at',
+          ascending: false,
+          secondaryOrderBy: 'rowid',
+          secondaryAscending: false,
+        })
+      )
+
+      await waitFor(() => {
+        expect(mockQueryBuilder.order).toHaveBeenCalled()
+      })
+
+      // Two order keys emitted, in sequence: created_at.desc then rowid.desc
+      expect(mockQueryBuilder.order).toHaveBeenCalledTimes(2)
+      expect(mockQueryBuilder.order.mock.calls[0]).toEqual([
+        'created_at',
+        { ascending: false },
+      ])
+      expect(mockQueryBuilder.order.mock.calls[1]).toEqual([
+        'rowid',
+        { ascending: false },
+      ])
+    })
+
+    it('respects secondaryAscending direction for the tie-break key', async () => {
+      renderHook(() =>
+        useRealtimeTable('activities', {
+          orderBy: 'created_at',
+          ascending: false,
+          secondaryOrderBy: 'rowid',
+          secondaryAscending: true,
+        })
+      )
+
+      await waitFor(() => {
+        expect(mockQueryBuilder.order).toHaveBeenCalledTimes(2)
+      })
+
+      expect(mockQueryBuilder.order.mock.calls[1]).toEqual([
+        'rowid',
+        { ascending: true },
+      ])
+    })
+
+    it('emits only the primary order key when secondaryOrderBy is omitted (view-safe default)', async () => {
+      renderHook(() =>
+        useRealtimeTable('v_ticket_summary', {
+          orderBy: 'created_at',
+          ascending: false,
+        })
+      )
+
+      await waitFor(() => {
+        expect(mockQueryBuilder.order).toHaveBeenCalled()
+      })
+
+      // No second order key leaks (guards views that lack rowid)
+      expect(mockQueryBuilder.order).toHaveBeenCalledTimes(1)
+      expect(mockQueryBuilder.order).toHaveBeenCalledWith('created_at', { ascending: false })
+    })
+  })
+
   describe('filter operators', () => {
     it('applies eq filter for plain keys', async () => {
       renderHook(() =>

@@ -20,27 +20,32 @@ db.exec(seedSql);
 // ============================================================
 // Rebase seed timestamps onto "now"
 // ------------------------------------------------------------
-// seed.sql uses hardcoded absolute dates (Aug 1-20 2026) so the demo would
-// look stale after that window passes -- worse, the Activity page defaults to a
-// 24h filter and everything older than 24h drops out, leaving the feed empty.
+// seed.sql uses hardcoded absolute dates so the demo would look stale after
+// that window passes -- worse, the Activity page defaults to a 30d filter and
+// anything older drops out, leaving the feed empty.
 //
 // Fix: shift every timestamp COLUMN by a single offset so the latest seeded
-// event lands ~2h ago (inside the 24h window) while the ~20-day spread and all
-// relative ordering / spacing are preserved. All the anchor logic lives here in
+// event lands ~2h ago (comfortably inside the 30d window) while the relative
+// ordering / spacing between events are preserved. All the anchor logic lives here in
 // ONE place. Cosmetic date strings embedded in JSON columns (parameters,
 // test_failures) and in ocp_version labels like "4.18.0-nightly-2026-08-01"
 // are intentionally left untouched -- they are labels, not filter/display
 // timestamps, and rewriting them risks breaking JSON validity.
 
-// Latest timestamp present in seed.sql (activities/verified ticket at Aug 20 05:00Z).
-const SEED_LATEST = '2026-08-20T05:00:00Z';
-// Land the newest event ~2h in the past so it sits comfortably inside the 24h view.
+// Latest timestamp present in seed.sql (Prow build finished_at / build_completed activity).
+const SEED_LATEST = '2026-09-02T09:39:03Z';
+// Land the newest event ~2h in the past so it reads as a fresh, just-completed run.
 const LEAD_SECONDS = 2 * 60 * 60;
 
 // Offset (seconds) to add to every seeded timestamp. Computed once, applied uniformly.
+// May be negative when SEED_LATEST is close to / ahead of "now" (e.g. today's builds).
 const offsetSeconds = Math.round(
   (Date.now() - LEAD_SECONDS * 1000 - Date.parse(SEED_LATEST)) / 1000
 );
+
+// SQLite datetime() modifiers need an explicit sign; a bare "+-N seconds" is
+// malformed and makes datetime() return NULL (which then trips NOT NULL columns).
+const offsetModifier = `${offsetSeconds >= 0 ? '+' : '-'}${Math.abs(offsetSeconds)} seconds`;
 
 // Map of table -> timestamp columns to shift. NULLs are left as NULL by datetime().
 const timestampColumns: Record<string, string[]> = {
@@ -50,15 +55,16 @@ const timestampColumns: Record<string, string[]> = {
   activities: ['created_at'],
   tasks: ['created_at', 'completed_at'],
   build_logs: ['fetched_at'],
-  sop_mappings: ['last_verified', 'created_at', 'updated_at'],
   agent_runs: ['created_at'],
+  // sop_mappings intentionally omitted: seed.sql treats them as reference data
+  // ("preserved as-is") with fixed last_verified dates that should NOT drift.
 };
 
 db.exec('BEGIN');
 for (const [table, cols] of Object.entries(timestampColumns)) {
   // Store as ISO 8601 with a trailing Z to match the seed's TIMESTAMPTZ format.
   const setClause = cols
-    .map((c) => `${c} = strftime('%Y-%m-%dT%H:%M:%SZ', datetime(${c}, '+${offsetSeconds} seconds'))`)
+    .map((c) => `${c} = strftime('%Y-%m-%dT%H:%M:%SZ', datetime(${c}, '${offsetModifier}'))`)
     .join(', ');
   db.exec(`UPDATE ${table} SET ${setClause};`);
 }
