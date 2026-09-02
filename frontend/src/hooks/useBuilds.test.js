@@ -206,11 +206,13 @@ describe('useBuildTrendData', () => {
     expect(result.current.loading).toBe(true)
   })
 
-  it('returns grouped data by date after fetch', async () => {
+  it('returns data grouped by date, counting builds by status', async () => {
+    // The trend aggregates whole builds by their status (success -> pass,
+    // failure -> fail, anything else -> skip), NOT individual test counts.
     const mockBuilds = [
-      { started_at: '2025-06-14T10:00:00Z', status: 'failure', pass_count: 5, fail_count: 2, skip_count: 1 },
-      { started_at: '2025-06-14T14:00:00Z', status: 'success', pass_count: 10, fail_count: 0, skip_count: 0 },
-      { started_at: '2025-06-15T08:00:00Z', status: 'failure', pass_count: 3, fail_count: 5, skip_count: 2 },
+      { started_at: '2025-06-14T10:00:00Z', status: 'failure' },
+      { started_at: '2025-06-14T14:00:00Z', status: 'success' },
+      { started_at: '2025-06-15T08:00:00Z', status: 'failure' },
     ]
 
     mockQueryBuilder.then.mockImplementation((resolve) =>
@@ -225,14 +227,14 @@ describe('useBuildTrendData', () => {
 
     expect(result.current.data).toHaveLength(2) // 2 distinct dates
     const day1 = result.current.data.find((d) => d.date === '2025-06-14')
-    expect(day1.pass).toBe(15) // 5 + 10
-    expect(day1.fail).toBe(2) // 2 + 0
+    expect(day1.pass).toBe(1) // 1 success build
+    expect(day1.fail).toBe(1) // 1 failure build
     expect(day1.total).toBe(2) // 2 builds on that date
 
     const day2 = result.current.data.find((d) => d.date === '2025-06-15')
-    expect(day2.pass).toBe(3)
-    expect(day2.fail).toBe(5)
-    expect(day2.skip).toBe(2)
+    expect(day2.pass).toBe(0)
+    expect(day2.fail).toBe(1)
+    expect(day2.skip).toBe(0)
     expect(day2.total).toBe(1)
   })
 
@@ -267,9 +269,11 @@ describe('useBuildTrendData', () => {
     expect(result.current.error).toBeNull()
   })
 
-  it('handles builds with null counts', async () => {
+  it('classifies non-success/failure builds as skip', async () => {
+    // A build whose status is neither success nor failure (e.g. aborted,
+    // pending) is counted in the skip bucket.
     const mockBuilds = [
-      { started_at: '2025-06-14T10:00:00Z', status: 'failure', pass_count: null, fail_count: null, skip_count: null },
+      { started_at: '2025-06-14T10:00:00Z', status: 'aborted' },
     ]
     mockQueryBuilder.then.mockImplementation((resolve) =>
       resolve({ data: mockBuilds, error: null })
@@ -284,6 +288,7 @@ describe('useBuildTrendData', () => {
     const day = result.current.data[0]
     expect(day.pass).toBe(0)
     expect(day.fail).toBe(0)
-    expect(day.skip).toBe(0)
+    expect(day.skip).toBe(1)
+    expect(day.total).toBe(1)
   })
 })

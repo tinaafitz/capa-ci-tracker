@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useRealtimeTable } from './useRealtimeTable'
 
@@ -273,68 +273,74 @@ describe('useRealtimeTable', () => {
     })
   })
 
-  describe('realtime subscription', () => {
-    it('subscribes to postgres_changes for INSERT, UPDATE, DELETE', async () => {
-      renderHook(() =>
-        useRealtimeTable('builds', { realtime: true })
-      )
-
-      await waitFor(() => {
-        expect(mockChannelFn).toHaveBeenCalled()
-      })
-
-      // Should subscribe to all three event types
-      const onCalls = mockChannelOn.mock.calls
-      expect(onCalls.length).toBe(3)
-
-      const events = onCalls.map((call) => call[1].event)
-      expect(events).toContain('INSERT')
-      expect(events).toContain('UPDATE')
-      expect(events).toContain('DELETE')
+  // NOTE: The app was migrated from Supabase Realtime channel subscriptions to
+  // 30-second setInterval polling (SQLite + Express backend, no websockets).
+  // These tests cover the polling behavior that replaced the old
+  // postgres_changes subscriptions. No channel is ever opened.
+  describe('polling (realtime option)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
     })
 
-    it('uses realtimeTable when specified (for view queries)', async () => {
-      renderHook(() =>
-        useRealtimeTable('v_ticket_summary', {
-          realtime: true,
-          realtimeTable: 'support_tickets',
-        })
-      )
-
-      await waitFor(() => {
-        expect(mockChannelOn).toHaveBeenCalled()
-      })
-
-      // The subscription should be on support_tickets, not v_ticket_summary
-      const firstOnCall = mockChannelOn.mock.calls[0]
-      expect(firstOnCall[1].table).toBe('support_tickets')
+    afterEach(() => {
+      vi.useRealTimers()
     })
 
-    it('does not subscribe when realtime is false', async () => {
-      renderHook(() =>
-        useRealtimeTable('builds', { realtime: false })
-      )
+    it('re-fetches on the polling interval when realtime is true', async () => {
+      renderHook(() => useRealtimeTable('builds', { realtime: true }))
 
-      // Wait for fetch to complete
-      await waitFor(() => {
-        expect(mockFrom).toHaveBeenCalled()
+      // Initial fetch on mount.
+      await vi.waitFor(() => {
+        expect(mockFrom).toHaveBeenCalledTimes(1)
       })
 
+      // Advance past the 30s polling interval -> another fetch.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000)
+      })
+      expect(mockFrom).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000)
+      })
+      expect(mockFrom).toHaveBeenCalledTimes(3)
+
+      // It never opens a Supabase realtime channel anymore.
       expect(mockChannelFn).not.toHaveBeenCalled()
     })
 
-    it('removes channel on unmount', async () => {
+    it('does not poll when realtime is false', async () => {
+      renderHook(() => useRealtimeTable('builds', { realtime: false }))
+
+      // Initial fetch still happens.
+      await vi.waitFor(() => {
+        expect(mockFrom).toHaveBeenCalledTimes(1)
+      })
+
+      // Advancing time does NOT trigger further fetches.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60000)
+      })
+      expect(mockFrom).toHaveBeenCalledTimes(1)
+      expect(mockChannelFn).not.toHaveBeenCalled()
+    })
+
+    it('stops polling on unmount', async () => {
       const { unmount } = renderHook(() =>
         useRealtimeTable('builds', { realtime: true })
       )
 
-      await waitFor(() => {
-        expect(mockChannelFn).toHaveBeenCalled()
+      await vi.waitFor(() => {
+        expect(mockFrom).toHaveBeenCalledTimes(1)
       })
 
       unmount()
 
-      expect(mockRemoveChannel).toHaveBeenCalledWith(mockChannel)
+      // No further fetches after the interval is cleared.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90000)
+      })
+      expect(mockFrom).toHaveBeenCalledTimes(1)
     })
   })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TransactionsPage } from './TransactionsPage'
 
@@ -25,6 +25,17 @@ vi.mock('@/hooks/useBuilds', () => ({
     page: 1,
     pageSize: 20,
     refetch: vi.fn(),
+  }),
+  useBuildStats: () => ({
+    stats: {
+      total: 0,
+      passRate: null,
+      failed: 0,
+      infraFailed: 0,
+      avgDurationMs: null,
+    },
+    loading: false,
+    error: null,
   }),
   useBuildTrendData: () => ({
     data: [],
@@ -58,8 +69,14 @@ describe('TransactionsPage', () => {
     expect(screen.getByText('Builds')).toBeInTheDocument()
   })
 
-  it('renders the trend chart', () => {
+  it('collapses the trend chart by default and reveals it via the toggle', () => {
     renderPage()
+    // Trend chart is collapsed by default (density refactor) so the builds
+    // table is visible without scrolling.
+    expect(screen.queryByTestId('build-trend-chart')).not.toBeInTheDocument()
+
+    // Expanding the "Build Trend" toggle reveals the chart.
+    fireEvent.click(screen.getByRole('button', { name: /Build Trend/i }))
     expect(screen.getByTestId('build-trend-chart')).toBeInTheDocument()
   })
 
