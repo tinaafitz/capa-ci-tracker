@@ -9,6 +9,7 @@
     "seed": "tsx seed-runner.ts",
     "migrate": "tsx scripts/migrate-from-postgres.ts",
     "backfill": "tsx scripts/backfill-failure-class.ts",
+    "repair-titles": "tsx scripts/repair-ticket-titles.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

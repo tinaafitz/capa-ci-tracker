@@ -13,6 +13,7 @@ import { db } from '../db/connection.js';
 import { dbEvents } from '../triggers.js';
 import { run as runDiagnosis } from './diagnosis.js';
 import { isInfraClass } from './classify-failure.js';
+import { composeTicketTitle } from './ticket-title.js';
 
 const AGENT_NAME = 'triage';
 
@@ -301,7 +302,11 @@ async function triageBuild(buildId: string): Promise<{
       `**Tests Passed:** ${build.fail_count === 0 ? 'Yes' : 'No'}`;
   } else {
     title = firstFailure
-      ? `${firstFailure.className || build.job_name}: ${firstFailure.name || 'test failure'}`
+      ? composeTicketTitle(
+          firstFailure.className || build.job_name,
+          firstFailure.name || 'test failure',
+          `${build.job_name} build #${build.external_id} failed`,
+        )
       : `${build.job_name} build #${build.external_id} failed`;
     description = firstFailure
       ? `**Error:** ${firstFailure.errorMessage?.substring(0, 500) || 'No error message'}\n\n**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n**OCP Version:** ${build.ocp_version || 'unknown'}\n**Failed Tests:** ${build.fail_count}/${build.total_count}`
