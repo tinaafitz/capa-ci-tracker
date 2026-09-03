@@ -18,6 +18,7 @@ db.exec('PRAGMA cache_size = -64000');
 // Drop views that need to be recreated with updated column lists.
 // CREATE VIEW IF NOT EXISTS won't update an existing view, so we drop first.
 db.exec('DROP VIEW IF EXISTS v_ticket_summary');
+db.exec('DROP VIEW IF EXISTS v_ticket_lifecycle');
 
 // Apply schema (idempotent -- uses CREATE TABLE IF NOT EXISTS / CREATE VIEW IF NOT EXISTS)
 const schemaPath = path.join(__dirname, 'schema.sql');

@@ -372,6 +372,7 @@ SELECT
   t.status,
   t.severity,
   t.assignee,
+  t.jira_key               AS jira_key,
 
   -- Pipeline stage (ordinal 1-6)
   CASE
