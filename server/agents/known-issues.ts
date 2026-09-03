@@ -19,7 +19,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'cloudformation_deletion_failure',
     pattern:
-      /CloudFormation stack DELETE_FAILED:.*|FAILED - RETRYING.*cloudformation.*deletion/i,
+      /CloudFormation stack DELETE_FAILED:|FAILED - RETRYING[^\n]{0,200}?cloudformation[^\n]{0,200}?deletion/i,
     category: 'aws_infrastructure',
     rootCause:
       'AWS CloudFormation stack deletion failure -- ROSA creates security groups outside CF that block VPC deletion',
@@ -28,7 +28,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'ocm_auth_failure',
     pattern:
-      /.*(ocm|openshift cluster manager).*(401|403|unauthorized|forbidden).*/i,
+      /(ocm|openshift cluster manager)[^\n]{0,200}?(401|403|unauthorized|forbidden)/i,
     category: 'auth_credentials',
     rootCause: 'OpenShift Cluster Manager authentication failure',
     defaultSeverity: 'infrastructure',
@@ -36,7 +36,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'capi_not_installed',
     pattern:
-      /.*(capi|cluster.*api).*(not found|does not exist|no.*running).*/i,
+      /(capi|cluster[^\n]{0,80}?api)[^\n]{0,200}?(not found|does not exist|no[^\n]{0,80}?running)/i,
     category: 'capi_setup',
     rootCause: 'CAPI/CAPA controllers not installed or running',
     defaultSeverity: 'upstream_breakage',
@@ -44,14 +44,14 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'api_rate_limit',
     pattern:
-      /^(?!.*(?:Pattern matched|Issue detected|Fix applied|Monitor|Remediation|RETRYING|retries left)).*(?:HTTP.*429|rate.limit.exceed|throttl.*request|too.many.requests.*api).*/i,
+      /^(?![\s\S]*(?:Pattern matched|Issue detected|Fix applied|Monitor|Remediation|RETRYING|retries left))[\s\S]*?(?:HTTP[^\n]{0,80}?429|rate.limit.exceed|throttl[^\n]{0,80}?request|too.many.requests[^\n]{0,80}?api)/i,
     category: 'aws_infrastructure',
     rootCause: 'API rate limiting encountered',
     defaultSeverity: 'infrastructure',
   },
   {
     id: 'resource_quota_exceeded',
-    pattern: /.*(quota|limit).*exceed.*/i,
+    pattern: /(quota|limit)[^\n]{0,200}?exceed/i,
     category: 'aws_infrastructure',
     rootCause: 'Resource quota or limit exceeded',
     defaultSeverity: 'infrastructure',
@@ -59,7 +59,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'rosacontrolplane_stuck_deletion',
     pattern:
-      /FAILED - RETRYING.*(?:rosacontrolplane|ROSAControlPlane).*(?:delet|still exists)|FAILED - RETRYING.*(?:delet).*(?:rosacontrolplane|ROSAControlPlane)/i,
+      /FAILED - RETRYING[^\n]{0,200}?(?:rosacontrolplane|ROSAControlPlane)[^\n]{0,200}?(?:delet|still exists)|FAILED - RETRYING[^\n]{0,200}?(?:delet)[^\n]{0,200}?(?:rosacontrolplane|ROSAControlPlane)/i,
     category: 'rosa_lifecycle',
     rootCause:
       'ROSAControlPlane stuck in deletion state due to finalizers or AWS resource cleanup',
@@ -68,7 +68,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'rosanetwork_stuck_deletion',
     pattern:
-      /FAILED - RETRYING.*(?:rosanetwork|ROSANetwork).*(?:delet|still exists)|FAILED - RETRYING.*(?:delet).*(?:rosanetwork|ROSANetwork)/i,
+      /FAILED - RETRYING[^\n]{0,200}?(?:rosanetwork|ROSANetwork)[^\n]{0,200}?(?:delet|still exists)|FAILED - RETRYING[^\n]{0,200}?(?:delet)[^\n]{0,200}?(?:rosanetwork|ROSANetwork)/i,
     category: 'rosa_lifecycle',
     rootCause:
       'ROSANetwork stuck in deletion state due to finalizers or VPC dependencies',
@@ -77,7 +77,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'rosaroleconfig_stuck_deletion',
     pattern:
-      /FAILED - RETRYING.*(?:rosaroleconfig|ROSARoleConfig).*(?:delet|still exists)|FAILED - RETRYING.*(?:delet).*(?:rosaroleconfig|ROSARoleConfig)/i,
+      /FAILED - RETRYING[^\n]{0,200}?(?:rosaroleconfig|ROSARoleConfig)[^\n]{0,200}?(?:delet|still exists)|FAILED - RETRYING[^\n]{0,200}?(?:delet)[^\n]{0,200}?(?:rosaroleconfig|ROSARoleConfig)/i,
     category: 'rosa_lifecycle',
     rootCause:
       'ROSARoleConfig stuck in deletion state due to finalizers or IAM cleanup',
@@ -86,7 +86,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'vpc_deletion_failure',
     pattern:
-      /.*vpc.*(has dependencies|cannot be deleted|delete.*fail|DELETE_FAILED).*/i,
+      /vpc[^\n]{0,200}?(has dependencies|cannot be deleted|delete[^\n]{0,80}?fail|DELETE_FAILED)/i,
     category: 'aws_infrastructure',
     rootCause: 'VPC deletion failure due to orphaned dependencies',
     defaultSeverity: 'infrastructure',
@@ -94,7 +94,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'networking_configuration_error',
     pattern:
-      /(?:subnet|vpc).*(?:invalid|not found|does not exist|no route|unreachable)/i,
+      /(?:subnet|vpc)[^\n]{0,200}?(?:invalid|not found|does not exist|no route|unreachable)/i,
     category: 'aws_infrastructure',
     rootCause: 'Network configuration error',
     defaultSeverity: 'infrastructure',
@@ -102,7 +102,7 @@ export const KNOWN_ISSUES: KnownIssue[] = [
   {
     id: 'repeated_timeouts',
     pattern:
-      /^(?!.*(?:Pattern matched|Issue detected|RETRYING)).*(?:timed?.out|timeout.*(?:waiting|exceeded|expired)).*/i,
+      /^(?![\s\S]*(?:Pattern matched|Issue detected|RETRYING))[\s\S]*?(?:timed?.out|timeout[^\n]{0,80}?(?:waiting|exceeded|expired))/i,
     category: 'infrastructure_timeout',
     rootCause: 'Operation timing out repeatedly',
     defaultSeverity: 'infrastructure',

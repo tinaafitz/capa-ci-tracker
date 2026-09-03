@@ -78,10 +78,42 @@ const insertActivityStmt = db.prepare(`
 // Pattern matching logic
 // ============================================================
 
+// ReDoS defense: Jenkins teardown stack traces can be multi-KB to multi-MB of
+// repeated "FAILED - RETRYING ... timed out" lines. Even linear-time regexes
+// scan the whole string, and any future pathological pattern could hang the
+// (synchronous) event loop on such input. Cap matched text at 8 KB -- known
+// issue signatures always appear near the start of the failure output.
+const MAX_MATCH_LENGTH = 8192;
+
+// Patterns whose intent is a whole-string exclusion via a leading
+// `^(?![\s\S]*(...RETRYING...))` negative lookahead. Truncating the input to
+// MAX_MATCH_LENGTH could amputate the RETRYING marker if it sits past 8 KB,
+// which would silently defeat the exclusion and misclassify retry-spam as a
+// genuine timeout / rate-limit. For these patterns we detect the retry-spam
+// marker on the FULL (untruncated) text and skip them when it is present, so
+// the whole-string exclusion holds regardless of where the marker lands.
+const RETRY_SENSITIVE_PATTERN_IDS = new Set(['api_rate_limit', 'repeated_timeouts']);
+
+// Whole-string marker that the retry-sensitive lookaheads use to exclude a
+// match. Matching the lookahead's alternation keeps behavior identical to the
+// un-truncated regex.
+const RETRY_SPAM_MARKER = /RETRYING|retries left/i;
+
 function diagnoseFailures(testFailures: TestFailure[]): DiagnosisResult | null {
   for (const failure of testFailures) {
-    const errorText = failure.errorMessage || '';
+    const fullErrorText = failure.errorMessage || '';
+    const fullStackText = failure.errorStackTrace || '';
+
+    // Compute exclusion on the FULL text, not the truncated slice, so the
+    // whole-string negative lookahead cannot be defeated by truncation.
+    const errorHasRetrySpam = RETRY_SPAM_MARKER.test(fullErrorText);
+    const stackHasRetrySpam = RETRY_SPAM_MARKER.test(fullStackText);
+
+    const errorText = fullErrorText.slice(0, MAX_MATCH_LENGTH);
     for (const issue of KNOWN_ISSUES) {
+      if (RETRY_SENSITIVE_PATTERN_IDS.has(issue.id) && errorHasRetrySpam) {
+        continue;
+      }
       if (issue.pattern.test(errorText)) {
         return {
           root_cause: issue.rootCause,
@@ -93,9 +125,12 @@ function diagnoseFailures(testFailures: TestFailure[]): DiagnosisResult | null {
     }
 
     // Also check the stack trace
-    const stackText = failure.errorStackTrace || '';
+    const stackText = fullStackText.slice(0, MAX_MATCH_LENGTH);
     if (stackText) {
       for (const issue of KNOWN_ISSUES) {
+        if (RETRY_SENSITIVE_PATTERN_IDS.has(issue.id) && stackHasRetrySpam) {
+          continue;
+        }
         if (issue.pattern.test(stackText)) {
           return {
             root_cause: issue.rootCause,
