@@ -10,6 +10,7 @@
     "migrate": "tsx scripts/migrate-from-postgres.ts",
     "backfill": "tsx scripts/backfill-failure-class.ts",
     "repair-titles": "tsx scripts/repair-ticket-titles.ts",
+    "prune-builds": "tsx scripts/prune-pre-floor-builds.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
