@@ -5,7 +5,11 @@ dist/
 .env.*.local
 .DS_Store
 *.log
-.claude/
+.claude/*
+# ...but do track the shared run-app skill (repo's verified way to launch the app)
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/run-app/
 
 # SQLite database files
 *.db
