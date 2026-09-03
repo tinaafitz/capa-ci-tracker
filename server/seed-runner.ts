@@ -32,20 +32,8 @@ db.exec(seedSql);
 // are intentionally left untouched -- they are labels, not filter/display
 // timestamps, and rewriting them risks breaking JSON validity.
 
-// Latest timestamp present in seed.sql (Prow build finished_at / build_completed activity).
-const SEED_LATEST = '2026-09-02T09:39:03Z';
 // Land the newest event ~2h in the past so it reads as a fresh, just-completed run.
 const LEAD_SECONDS = 2 * 60 * 60;
-
-// Offset (seconds) to add to every seeded timestamp. Computed once, applied uniformly.
-// May be negative when SEED_LATEST is close to / ahead of "now" (e.g. today's builds).
-const offsetSeconds = Math.round(
-  (Date.now() - LEAD_SECONDS * 1000 - Date.parse(SEED_LATEST)) / 1000
-);
-
-// SQLite datetime() modifiers need an explicit sign; a bare "+-N seconds" is
-// malformed and makes datetime() return NULL (which then trips NOT NULL columns).
-const offsetModifier = `${offsetSeconds >= 0 ? '+' : '-'}${Math.abs(offsetSeconds)} seconds`;
 
 // Map of table -> timestamp columns to shift. NULLs are left as NULL by datetime().
 const timestampColumns: Record<string, string[]> = {
@@ -60,6 +48,35 @@ const timestampColumns: Record<string, string[]> = {
   // ("preserved as-is") with fixed last_verified dates that should NOT drift.
 };
 
+// Latest timestamp actually present in the just-loaded seed data. Derived from
+// the same columns we shift, so it can never drift out of sync with seed.sql
+// (a hardcoded anchor silently breaks the "~2h ago" invariant if the seed's
+// newest event changes). MAX() ignores NULLs; the ISO-8601 'Z' strings sort
+// lexicographically in timestamp order.
+const seedLatest = (() => {
+  const maxima: string[] = [];
+  for (const [table, cols] of Object.entries(timestampColumns)) {
+    // One aggregate per column (MAX() cannot be nested); collect the row's values.
+    const selectList = cols.map((c, i) => `MAX(${c}) AS c${i}`).join(', ');
+    const row = db.prepare(`SELECT ${selectList} FROM ${table}`).get() as Record<string, string | null>;
+    for (const v of Object.values(row)) if (v != null) maxima.push(v);
+  }
+  // ISO-8601 'Z' strings sort lexicographically in timestamp order.
+  const latest = maxima.sort().at(-1);
+  if (!latest) throw new Error('[seed] No timestamps found in seeded data -- cannot rebase.');
+  return latest;
+})();
+
+// Offset (seconds) to add to every seeded timestamp. Computed once, applied uniformly.
+// May be negative when the newest seeded event is close to / ahead of "now" (e.g. today's builds).
+const offsetSeconds = Math.round(
+  (Date.now() - LEAD_SECONDS * 1000 - Date.parse(seedLatest)) / 1000
+);
+
+// SQLite datetime() modifiers need an explicit sign; a bare "+-N seconds" is
+// malformed and makes datetime() return NULL (which then trips NOT NULL columns).
+const offsetModifier = `${offsetSeconds >= 0 ? '+' : '-'}${Math.abs(offsetSeconds)} seconds`;
+
 db.exec('BEGIN');
 for (const [table, cols] of Object.entries(timestampColumns)) {
   // Store as ISO 8601 with a trailing Z to match the seed's TIMESTAMPTZ format.
@@ -70,7 +87,7 @@ for (const [table, cols] of Object.entries(timestampColumns)) {
 }
 db.exec('COMMIT');
 
-console.log(`[seed] Rebased timestamps by ${offsetSeconds}s so the newest event is ~2h ago.`);
+console.log(`[seed] Newest seeded event ${seedLatest}; rebased timestamps by ${offsetSeconds}s so it lands ~2h ago.`);
 
 // Verify
 const buildCount = (db.prepare('SELECT count(*) AS n FROM builds').get() as { n: number }).n;
