@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
 import { classifyFailure } from './classify-failure.js';
+import { INGEST_FLOOR_MS, INGEST_FLOOR_LABEL, isBeforeFloor } from './ingest-floor.js';
 
 const AGENT_NAME = 'ingest-prow';
 
@@ -403,8 +404,18 @@ export async function run(): Promise<AgentResult> {
     );
     skipped += prowJobs.length - relevantJobs.length;
 
+    let flooredCount = 0;
+
     for (const prowJob of relevantJobs) {
       try {
+        // Ingest floor: skip builds that started strictly before the floor date.
+        // Prow startTime is an ISO 8601 UTC string.
+        if (isBeforeFloor(prowJob.status.startTime, INGEST_FLOOR_MS)) {
+          flooredCount++;
+          skipped++;
+          continue;
+        }
+
         const jobName = prowJob.spec.job;
         const externalId =
           prowJob.status.build_id ||
@@ -598,6 +609,12 @@ export async function run(): Promise<AgentResult> {
           `Error processing Prow job ${prowJob.spec.job}: ${(err as Error).message}`,
         );
       }
+    }
+
+    if (flooredCount > 0) {
+      console.log(
+        `[ingest-prow] skipped ${flooredCount} build(s) before ingest floor ${INGEST_FLOOR_LABEL}`,
+      );
     }
 
     const success = errors.length === 0;

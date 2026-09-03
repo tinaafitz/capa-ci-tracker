@@ -10,6 +10,7 @@ import { Agent, fetch as undiciFetch } from 'undici';
 import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
 import { classifyFailure } from './classify-failure.js';
+import { INGEST_FLOOR_MS, INGEST_FLOOR_LABEL, isBeforeFloor } from './ingest-floor.js';
 
 const AGENT_NAME = 'ingest-jenkins';
 
@@ -271,8 +272,18 @@ async function ingestJob(
     return result;
   }
 
+  let flooredCount = 0;
+
   for (const build of builds) {
     try {
+      // Ingest floor: skip builds that started strictly before the floor date.
+      // Jenkins `timestamp` is epoch-ms (UTC), compared directly.
+      if (isBeforeFloor(build.timestamp, INGEST_FLOOR_MS)) {
+        flooredCount++;
+        result.skipped++;
+        continue;
+      }
+
       const parameters = extractParameters(build.actions || []);
       const ocpVersion = extractOcpVersion(parameters);
       const status = mapJenkinsResult(build.result);
@@ -415,6 +426,12 @@ async function ingestJob(
         `Error processing build #${build.number}: ${(err as Error).message}`,
       );
     }
+  }
+
+  if (flooredCount > 0) {
+    console.log(
+      `[ingest-jenkins] ${jobName}: skipped ${flooredCount} build(s) before ingest floor ${INGEST_FLOOR_LABEL}`,
+    );
   }
 
   return result;
