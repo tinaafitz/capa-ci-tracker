@@ -139,11 +139,23 @@ export function BuildHistoryTable({
             if (params.FEATURE_GROUP) featureParts.push(`group:${params.FEATURE_GROUP}`)
             if (params.CLUSTER_FEATURES) featureParts.push(`features:${params.CLUSTER_FEATURES}`)
             if (params.NAME_PREFIX) featureParts.push(`prefix:${params.NAME_PREFIX}`)
+
+            // Extract host from OCP_HUB_API_URL
+            if (params.OCP_HUB_API_URL) {
+              const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
+              if (hostMatch) featureParts.push(`host:${hostMatch[1]}`)
+            }
+
             if (params.EXTRA_FEATURE_VARS) {
               const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
               if (channelMatch) featureParts.push(`channel:${channelMatch[1]}`)
               const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
               if (versionMatch) featureParts.push(`ocp:${versionMatch[1]}`)
+            }
+
+            // Add cluster OCP version if available
+            if (row.original.ocp_version) {
+              featureParts.push(`version:${row.original.ocp_version}`)
             }
           } catch {
             // ignore
