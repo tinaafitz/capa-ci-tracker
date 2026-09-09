@@ -129,20 +129,26 @@ export function BuildHistoryTable({
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
           const repo = extractRepo(row.original.job_name, row.original.source)
-          let features = ''
+          let featureParts = []
           try {
             // parameters can be either a JSON string or already parsed object
             const params = typeof row.original.parameters === 'string'
               ? JSON.parse(row.original.parameters || '{}')
               : (row.original.parameters || {})
-            const featureGroup = params.FEATURE_GROUP || ''
-            const clusterFeatures = params.CLUSTER_FEATURES || ''
-            const extraVars = params.EXTRA_FEATURE_VARS || ''
-            const parts = [featureGroup, clusterFeatures, extraVars].filter(Boolean)
-            features = parts.join(' / ')
+
+            if (params.FEATURE_GROUP) featureParts.push(`group:${params.FEATURE_GROUP}`)
+            if (params.CLUSTER_FEATURES) featureParts.push(`features:${params.CLUSTER_FEATURES}`)
+            if (params.NAME_PREFIX) featureParts.push(`prefix:${params.NAME_PREFIX}`)
+            if (params.EXTRA_FEATURE_VARS) {
+              const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
+              if (channelMatch) featureParts.push(`channel:${channelMatch[1]}`)
+              const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
+              if (versionMatch) featureParts.push(`ocp:${versionMatch[1]}`)
+            }
           } catch {
             // ignore
           }
+
           return (
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-mono break-all whitespace-normal">
@@ -153,9 +159,9 @@ export function BuildHistoryTable({
                   {repo}
                 </span>
               )}
-              {features && (
-                <span className="text-xs text-muted-foreground italic break-all">
-                  {features}
+              {featureParts.length > 0 && (
+                <span className="text-xs text-muted-foreground font-mono break-all">
+                  {featureParts.join(' • ')}
                 </span>
               )}
             </div>
