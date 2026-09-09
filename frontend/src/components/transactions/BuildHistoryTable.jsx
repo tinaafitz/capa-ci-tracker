@@ -43,12 +43,14 @@ function infraClassLabel(failureClass) {
  * Badge shown on infra/harness failure builds.
  * Uses amber styling to distinguish from red "Failed" status.
  */
-function InfraBadge({ failureClass }) {
+function InfraBadge({ failureClass, failureReason, title }) {
   const label = infraClassLabel(failureClass)
+  const displayTitle = title || failureReason || undefined
   return (
     <Badge
       variant="outline"
       className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px]"
+      title={displayTitle}
     >
       infra:{label}
     </Badge>
@@ -165,8 +167,19 @@ export function BuildHistoryTable({
         enableSorting: false,
         cell: ({ row }) => {
           const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
-          if (!isInfra) return null
-          return <InfraBadge failureClass={row.original.failure_class} />
+          const failureClass = row.original.failure_class
+          const failureReason = row.original.failure_reason
+
+          // Show badge for infra failures or cleanup verification failures
+          if (isInfra || failureClass === 'cleanup_verification_failure') {
+            return (
+              <InfraBadge
+                failureClass={failureClass}
+                failureReason={failureReason}
+              />
+            )
+          }
+          return null
         },
         size: 110,
       },

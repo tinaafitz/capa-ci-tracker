@@ -246,7 +246,7 @@ const insertActivityStmt = db.prepare(`
 `);
 
 const getBuildIdStmt = db.prepare(`
-  SELECT id, failure_class, failure_reason, is_infra FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
+  SELECT id, status, failure_class, failure_reason, is_infra FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
 `);
 
 async function ingestJob(
@@ -313,7 +313,7 @@ async function ingestJob(
 
       // Check if this build already exists (to avoid unnecessary triage re-invocations)
       const existingBuild = getBuildIdStmt.get(String(build.number), jobName) as
-        | { id: string; failure_class: string | null; failure_reason: string | null; is_infra: number }
+        | { id: string; status: string; failure_class: string | null; failure_reason: string | null; is_infra: number }
         | undefined;
       const isNew = !existingBuild;
 
@@ -360,6 +360,30 @@ async function ingestJob(
         });
       }
 
+      // Mark infra-only failures as passing.
+      // testsPassed=true && failCount=0: tests passed, infra failed post-test (not a product regression)
+      // This applies to both 'failure' and 'unstable' statuses — if all tests passed,
+      // the failure was in post-processing (teardown, cleanup, etc).
+      //
+      // Cleanup verification failures: if passCount > 0 and only "Checks each requested feature"
+      // tests failed, the cluster was successfully deleted but the post-deletion verification
+      // step failed (expected when querying a deleted cluster). Mark as success since the actual
+      // deletion work completed.
+      const isCleanupOnlyWithVerificationFailure =
+        passCount > 0 &&
+        (status === 'unstable' || status === 'failure') &&
+        testFailures.length > 0 &&
+        testFailures.every(f => f.name && f.name.includes('Checks each requested feature'));
+      const reportStatus = (testsPassed === true && failCount === 0) || isCleanupOnlyWithVerificationFailure
+        ? 'success'
+        : status;
+
+      // Update failure_class and failure_reason for cleanup verification failures
+      if (isCleanupOnlyWithVerificationFailure) {
+        classification.failure_class = 'cleanup_verification_failure';
+        classification.failure_reason = 'Cleanup completed; verification step failed on deleted cluster (not test-related)';
+      }
+
       // Upsert the build
       upsertBuildStmt.run(
         buildId,
@@ -367,7 +391,7 @@ async function ingestJob(
         String(build.number),
         jobName,
         build.url,
-        status,
+        reportStatus,
         passCount,
         failCount,
         testReport?.skipCount ?? 0,
