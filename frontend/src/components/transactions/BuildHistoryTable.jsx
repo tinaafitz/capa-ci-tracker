@@ -130,19 +130,19 @@ export function BuildHistoryTable({
           const fullName = row.getValue('job_name') || ''
           const repo = extractRepo(row.original.job_name, row.original.source)
           return (
-            <div className="flex flex-col gap-0.5 max-w-xs">
-              <span className="text-sm font-mono truncate" title={fullName}>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-mono truncate max-w-xs" title={fullName}>
                 {fullName}
               </span>
               {repo && (
-                <span className="text-xs text-muted-foreground font-mono truncate">
+                <span className="text-xs text-muted-foreground font-mono">
                   {repo}
                 </span>
               )}
             </div>
           )
         },
-        size: 200,
+        size: 180,
         meta: { cellClassName: 'whitespace-nowrap' },
       },
       {
@@ -182,12 +182,12 @@ export function BuildHistoryTable({
           }
 
           return featureParts.length > 0 ? (
-            <span className="text-xs text-muted-foreground font-mono break-words">
+            <span className="text-xs text-muted-foreground font-mono">
               {featureParts.join(' • ')}
             </span>
           ) : null
         },
-        size: 280,
+        size: 240,
       },
       {
         accessorKey: 'source',
@@ -207,7 +207,7 @@ export function BuildHistoryTable({
       },
       {
         id: 'class',
-        header: 'Class',
+        header: 'Reason',
         enableSorting: false,
         cell: ({ row }) => {
           const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
@@ -225,7 +225,7 @@ export function BuildHistoryTable({
           }
           return null
         },
-        size: 140,
+        size: 80,
       },
       {
         id: 'tests',
