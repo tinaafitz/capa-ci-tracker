@@ -43,12 +43,14 @@ function infraClassLabel(failureClass) {
  * Badge shown on infra/harness failure builds.
  * Uses amber styling to distinguish from red "Failed" status.
  */
-function InfraBadge({ failureClass }) {
+function InfraBadge({ failureClass, failureReason, title }) {
   const label = infraClassLabel(failureClass)
+  const displayTitle = title || failureReason || undefined
   return (
     <Badge
       variant="outline"
       className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px]"
+      title={displayTitle}
     >
       infra:{label}
     </Badge>
@@ -129,19 +131,63 @@ export function BuildHistoryTable({
           const repo = extractRepo(row.original.job_name, row.original.source)
           return (
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-mono break-all whitespace-normal">
+              <span className="text-sm font-mono truncate max-w-xs" title={fullName}>
                 {fullName}
               </span>
               {repo && (
-                <span className="text-xs text-muted-foreground font-mono break-all">
+                <span className="text-xs text-muted-foreground font-mono">
                   {repo}
                 </span>
               )}
             </div>
           )
         },
-        size: 500,
-        meta: { cellClassName: 'whitespace-normal' },
+        size: 180,
+        meta: { cellClassName: 'whitespace-nowrap' },
+      },
+      {
+        id: 'params',
+        header: 'Params',
+        enableSorting: false,
+        cell: ({ row }) => {
+          let featureParts = []
+          try {
+            // parameters can be either a JSON string or already parsed object
+            const params = typeof row.original.parameters === 'string'
+              ? JSON.parse(row.original.parameters || '{}')
+              : (row.original.parameters || {})
+
+            if (params.FEATURE_GROUP) featureParts.push(`group:${params.FEATURE_GROUP}`)
+            if (params.NAME_PREFIX) featureParts.push(`prefix:${params.NAME_PREFIX}`)
+
+            // Extract host from OCP_HUB_API_URL
+            if (params.OCP_HUB_API_URL) {
+              const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
+              if (hostMatch) featureParts.push(`host:${hostMatch[1]}`)
+            }
+
+            if (params.EXTRA_FEATURE_VARS) {
+              const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
+              if (channelMatch) featureParts.push(`channel:${channelMatch[1]}`)
+              const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
+              if (versionMatch) featureParts.push(`ocp:${versionMatch[1]}`)
+            }
+
+            // Add cluster OCP version if available
+            if (row.original.ocp_version) {
+              featureParts.push(`version:${row.original.ocp_version}`)
+            }
+          } catch {
+            // ignore
+          }
+
+          return featureParts.length > 0 ? (
+            <span className="text-xs text-muted-foreground font-mono">
+              {featureParts.join(' • ')}
+            </span>
+          ) : null
+        },
+        size: 240,
       },
       {
         accessorKey: 'source',
@@ -151,24 +197,35 @@ export function BuildHistoryTable({
             {row.getValue('source')}
           </span>
         ),
-        size: 80,
+        size: 70,
       },
       {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
-        size: 100,
+        size: 90,
       },
       {
         id: 'class',
-        header: 'Class',
+        header: 'Reason',
         enableSorting: false,
         cell: ({ row }) => {
           const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
-          if (!isInfra) return null
-          return <InfraBadge failureClass={row.original.failure_class} />
+          const failureClass = row.original.failure_class
+          const failureReason = row.original.failure_reason
+
+          // Show badge for infra failures or cleanup verification failures
+          if (isInfra || failureClass === 'cleanup_verification_failure') {
+            return (
+              <InfraBadge
+                failureClass={failureClass}
+                failureReason={failureReason}
+              />
+            )
+          }
+          return null
         },
-        size: 110,
+        size: 80,
       },
       {
         id: 'tests',
