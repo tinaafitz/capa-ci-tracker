@@ -129,6 +129,20 @@ export function BuildHistoryTable({
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
           const repo = extractRepo(row.original.job_name, row.original.source)
+          let features = ''
+          try {
+            // parameters can be either a JSON string or already parsed object
+            const params = typeof row.original.parameters === 'string'
+              ? JSON.parse(row.original.parameters || '{}')
+              : (row.original.parameters || {})
+            const featureGroup = params.FEATURE_GROUP || ''
+            const clusterFeatures = params.CLUSTER_FEATURES || ''
+            const extraVars = params.EXTRA_FEATURE_VARS || ''
+            const parts = [featureGroup, clusterFeatures, extraVars].filter(Boolean)
+            features = parts.join(' / ')
+          } catch {
+            // ignore
+          }
           return (
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-mono break-all whitespace-normal">
@@ -137,6 +151,11 @@ export function BuildHistoryTable({
               {repo && (
                 <span className="text-xs text-muted-foreground font-mono break-all">
                   {repo}
+                </span>
+              )}
+              {features && (
+                <span className="text-xs text-muted-foreground italic break-all">
+                  {features}
                 </span>
               )}
             </div>
