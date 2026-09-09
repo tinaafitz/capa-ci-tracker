@@ -129,6 +129,27 @@ export function BuildHistoryTable({
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
           const repo = extractRepo(row.original.job_name, row.original.source)
+          return (
+            <div className="flex flex-col gap-0.5 max-w-xs">
+              <span className="text-sm font-mono truncate" title={fullName}>
+                {fullName}
+              </span>
+              {repo && (
+                <span className="text-xs text-muted-foreground font-mono truncate">
+                  {repo}
+                </span>
+              )}
+            </div>
+          )
+        },
+        size: 200,
+        meta: { cellClassName: 'whitespace-nowrap' },
+      },
+      {
+        id: 'params',
+        header: 'Params',
+        enableSorting: false,
+        cell: ({ row }) => {
           let featureParts = []
           try {
             // parameters can be either a JSON string or already parsed object
@@ -137,7 +158,6 @@ export function BuildHistoryTable({
               : (row.original.parameters || {})
 
             if (params.FEATURE_GROUP) featureParts.push(`group:${params.FEATURE_GROUP}`)
-            if (params.CLUSTER_FEATURES) featureParts.push(`features:${params.CLUSTER_FEATURES}`)
             if (params.NAME_PREFIX) featureParts.push(`prefix:${params.NAME_PREFIX}`)
 
             // Extract host from OCP_HUB_API_URL
@@ -161,26 +181,13 @@ export function BuildHistoryTable({
             // ignore
           }
 
-          return (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-mono break-all whitespace-normal">
-                {fullName}
-              </span>
-              {repo && (
-                <span className="text-xs text-muted-foreground font-mono break-all">
-                  {repo}
-                </span>
-              )}
-              {featureParts.length > 0 && (
-                <span className="text-xs text-muted-foreground font-mono break-all">
-                  {featureParts.join(' • ')}
-                </span>
-              )}
-            </div>
-          )
+          return featureParts.length > 0 ? (
+            <span className="text-xs text-muted-foreground font-mono break-words">
+              {featureParts.join(' • ')}
+            </span>
+          ) : null
         },
         size: 280,
-        meta: { cellClassName: 'whitespace-normal' },
       },
       {
         accessorKey: 'source',
