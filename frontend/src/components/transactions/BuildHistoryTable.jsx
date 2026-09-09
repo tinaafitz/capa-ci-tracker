@@ -179,7 +179,7 @@ export function BuildHistoryTable({
             </div>
           )
         },
-        size: 500,
+        size: 280,
         meta: { cellClassName: 'whitespace-normal' },
       },
       {
@@ -190,13 +190,13 @@ export function BuildHistoryTable({
             {row.getValue('source')}
           </span>
         ),
-        size: 80,
+        size: 70,
       },
       {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
-        size: 100,
+        size: 90,
       },
       {
         id: 'class',
@@ -218,7 +218,7 @@ export function BuildHistoryTable({
           }
           return null
         },
-        size: 110,
+        size: 140,
       },
       {
         id: 'tests',
