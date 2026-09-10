@@ -112,7 +112,14 @@ function extractParameters(
   return params;
 }
 
-function extractOcpVersion(params: Record<string, string>): string | null {
+// `capi_tests` has no first-class OCP version parameter -- the guest version is
+// passed as a free-form key=value string in EXTRA_FEATURE_VARS, e.g.
+// "openshift_version=5.0.0-rc.0 channel_group=candidate". Without this the
+// Builds list (which parses the same string for its chips) shows a version
+// while builds.ocp_version stays empty and tickets render "OCP Version: --".
+const EXTRA_VARS_OCP_VERSION = /(?:^|\s)openshift_version=(\S+)/;
+
+export function extractOcpVersion(params: Record<string, string>): string | null {
   for (const key of [
     'OCP_VERSION',
     'OPENSHIFT_VERSION',
@@ -121,7 +128,7 @@ function extractOcpVersion(params: Record<string, string>): string | null {
   ]) {
     if (params[key]) return params[key];
   }
-  return null;
+  return params.EXTRA_FEATURE_VARS?.match(EXTRA_VARS_OCP_VERSION)?.[1] ?? null;
 }
 
 /**

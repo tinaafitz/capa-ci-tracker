@@ -16,6 +16,7 @@ export const FAILURE_TAXONOMY = [
   'infra_provision',
   'infra_teardown',
   'infra_timeout',
+  'infra_hub',
   'aborted',
   'flake',
   'unknown',
@@ -71,6 +72,19 @@ const RE_HARNESS_TEARDOWN = /deprovision|teardown|gather/i;
 const RE_HARNESS_PROVISION = /ipi-conf|provision|install/i;
 
 /**
+ * HIGH-CONFIDENCE: the environment died before the product was ever exercised.
+ *
+ * These banners are emitted by the harness's own pre-flight steps, not by any
+ * assertion, so — like the Prow step-graph token — they cannot appear in a
+ * genuine product test failure. They matter because they break the assumption
+ * behind the failCount gate below: when the hub is unreachable, EVERY spec in
+ * the suite reports a failure, so failCount is large while the actual cause is
+ * pure infrastructure and no CAPA code ran at all.
+ */
+const RE_ENV_FATAL_HUB_LOGIN =
+  /OPENSHIFT LOGIN FAILED|Failed to login to OpenShift Hub cluster/i;
+
+/**
  * BROAD regexes — only applied when failCount === 0 (no test failures
  * recorded) so we never mislabel a product test failure that happens to
  * contain infra-sounding words in its error message.
@@ -124,32 +138,40 @@ export function classifyFailure(input: ClassifyInput): ClassifyResult {
     return classifyHarnessReason(text);
   }
 
-  // Rule 3 — tests known to have passed but overall job failed → infra post-step.
+  // Rule 3 — environment fatal before the product ran (HIGH CONFIDENCE).
+  // Must precede the failCount gate: a dead hub fails every spec, so failCount
+  // is large, but the run never touched CAPA. Without this the build is filed
+  // as a product_test_failure and shows no Reason at all.
+  if (RE_ENV_FATAL_HUB_LOGIN.test(text)) {
+    return infraResult('infra_hub', text, RE_ENV_FATAL_HUB_LOGIN);
+  }
+
+  // Rule 4 — tests known to have passed but overall job failed → infra post-step.
   // (testsPassed===true means finished.json reported passed=true but the job
   // still ended in failure — a post-test infra step broke.)
   //
   // Additionally require failCount === 0 so the two signals can't contradict:
   // a caller passing testsPassed:true with failCount>0 must not silently get
   // an infra class. When they disagree, fall through to the failCount gate
-  // (Rule 4) which treats recorded test failures as a product failure.
+  // (Rule 5) which treats recorded test failures as a product failure.
   if (testsPassed === true && failCount === 0) {
     return classifyInfraText(text);
   }
 
-  // Rule 4 — real test failures: failCount > 0 with no high-confidence harness
+  // Rule 5 — real test failures: failCount > 0 with no high-confidence harness
   // signal → product failure regardless of infra-sounding words in the error.
   if (failCount > 0) {
     return { failure_class: 'product_test_failure', failure_reason: null, is_infra: 0 };
   }
 
-  // Rule 5 — failCount === 0, no harness signal, tests not known passed:
+  // Rule 6 — failCount === 0, no harness signal, tests not known passed:
   // apply broad infra-word regexes. These are safe here because there are
   // no recorded test failures that could produce false-positive infra words.
   if (RE_LEASE.test(text))    return infraResult('infra_lease',    text, RE_LEASE);
   if (RE_AUTH.test(text))     return infraResult('infra_auth',     text, RE_AUTH);
   if (RE_TIMEOUT.test(text))  return infraResult('infra_timeout',  text, RE_TIMEOUT);
 
-  // Rule 6 — fallback
+  // Rule 7 — fallback
   return { failure_class: 'unknown', failure_reason: null, is_infra: 0 };
 }
 
@@ -170,7 +192,7 @@ function classifyHarnessReason(text: string): ClassifyResult {
 }
 
 /**
- * Classify infra sub-type when we know tests passed (Rule 3 path).
+ * Classify infra sub-type when we know tests passed (Rule 4 path).
  * Broad regexes are safe here because testsPassed===true means there were
  * no product test failures.
  * Falls back to infra_teardown when no sub-signature matches.

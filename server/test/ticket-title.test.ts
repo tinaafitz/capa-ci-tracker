@@ -50,6 +50,24 @@ describe('composeTicketTitle', () => {
     expect(twice).toBe(once);
   });
 
+  it('keeps the describe prefix when className is the Ginkgo full spec text', () => {
+    // Ginkgo puts "<describe blocks> <it text>" in className and the it-text
+    // alone in name. Joining them verbatim repeats the it-text, and truncation
+    // hides the repeat by cutting it off — so the title silently loses its tail.
+    const name =
+      'Deletes a ROSA HCP cluster including optional CAPA ROSANetwork and ROSARoleConfig automation resources';
+    const className = `CAPA Cluster Deletion ${name}`;
+    expect(composeTicketTitle(className, name, 'fallback')).toBe(
+      truncateTitle(`CAPA Cluster Deletion: ${name}`),
+    );
+  });
+
+  it('uses name alone when className is exactly the name', () => {
+    expect(composeTicketTitle('Deletes a cluster', 'Deletes a cluster', 'fb')).toBe(
+      'Deletes a cluster',
+    );
+  });
+
   it('falls back when both sides are empty', () => {
     expect(composeTicketTitle('', '', 'the fallback')).toBe('the fallback');
     expect(composeTicketTitle(null, null, 'the fallback')).toBe('the fallback');

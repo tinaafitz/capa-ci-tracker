@@ -96,98 +96,87 @@ export function BuildHistoryTable({
   onPageChange,
   onBuildClick,
 }) {
+  // `size` below is a RELATIVE WEIGHT, not a pixel width. The header render
+  // divides each one by the table's total to emit a percentage, so the columns
+  // always sum to 100% and share any surplus width in proportion. Fixed pixel
+  // widths pooled all the leftover space into whichever column absorbed it,
+  // leaving a blank gap mid-row on wide screens.
   const columns = useMemo(
     () => [
       {
-        accessorKey: 'external_id',
-        header: 'Build',
-        cell: ({ row }) => {
-          const externalId = row.getValue('external_id')
-          const jobUrl = row.original.job_url
-          if (jobUrl) {
-            return (
-              <a
-                href={jobUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary hover:underline font-mono text-xs font-medium"
-                onClick={(e) => e.stopPropagation()}
-              >
-                #{externalId}
-              </a>
-            )
-          }
-          return (
-            <span className="font-mono text-xs font-medium">#{externalId}</span>
-          )
-        },
-        size: 80,
-      },
-      {
+        // Job, build, repo and params all identify the same run, so they share
+        // one stacked column. Splitting them across four columns spent width on
+        // repeated separators and left every field cramped.
         accessorKey: 'job_name',
-        header: 'Job',
+        header: 'Job / Build',
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
+          const externalId = row.original.external_id
+          const jobUrl = row.original.job_url
           const repo = extractRepo(row.original.job_name, row.original.source)
+          const paramChips = buildParamChips(row.original).join(' • ')
+
+          // Jenkins job names are short ("capi_tests") with a 3-digit build, so
+          // they fit on one line together. Prow pairs a very long generated job
+          // name with a 19-digit build id and needs its own line for each.
+          const inline = row.original.source === 'jenkins'
+
+          const jobName = (
+            <span className="text-sm font-mono truncate" title={fullName}>
+              {fullName}
+            </span>
+          )
+          const buildRef = jobUrl ? (
+            <a
+              href={jobUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline font-mono text-xs font-medium w-fit shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              #{externalId}
+            </a>
+          ) : (
+            <span className="font-mono text-xs font-medium shrink-0">#{externalId}</span>
+          )
+
           return (
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-mono truncate max-w-xs" title={fullName}>
-                {fullName}
-              </span>
+              {inline ? (
+                <span className="flex items-baseline gap-2 min-w-0">
+                  {jobName}
+                  {buildRef}
+                </span>
+              ) : (
+                <>
+                  {jobName}
+                  {buildRef}
+                </>
+              )}
               {repo && (
-                <span className="text-xs text-muted-foreground font-mono">
+                <span
+                  className="text-xs text-muted-foreground font-mono truncate"
+                  title={repo}
+                >
                   {repo}
+                </span>
+              )}
+              {paramChips && (
+                <span
+                  className="text-xs text-muted-foreground font-mono truncate"
+                  title={paramChips}
+                >
+                  {paramChips}
                 </span>
               )}
             </div>
           )
         },
-        size: 180,
+        // Roughly 38% of the table -- it carries four stacked lines including
+        // the longest content on the row (a Prow job name), so it earns the
+        // largest share. See the `size` note above the column list.
+        size: 400,
         meta: { cellClassName: 'whitespace-nowrap' },
-      },
-      {
-        id: 'params',
-        header: 'Params',
-        enableSorting: false,
-        cell: ({ row }) => {
-          let featureParts = []
-          try {
-            // parameters can be either a JSON string or already parsed object
-            const params = typeof row.original.parameters === 'string'
-              ? JSON.parse(row.original.parameters || '{}')
-              : (row.original.parameters || {})
-
-            if (params.FEATURE_GROUP) featureParts.push(`group:${params.FEATURE_GROUP}`)
-            if (params.NAME_PREFIX) featureParts.push(`prefix:${params.NAME_PREFIX}`)
-
-            // Extract host from OCP_HUB_API_URL
-            if (params.OCP_HUB_API_URL) {
-              const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
-              if (hostMatch) featureParts.push(`host:${hostMatch[1]}`)
-            }
-
-            if (params.EXTRA_FEATURE_VARS) {
-              const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
-              if (channelMatch) featureParts.push(`channel:${channelMatch[1]}`)
-              const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
-              if (versionMatch) featureParts.push(`ocp:${versionMatch[1]}`)
-            }
-
-            // Add cluster OCP version if available
-            if (row.original.ocp_version) {
-              featureParts.push(`version:${row.original.ocp_version}`)
-            }
-          } catch {
-            // ignore
-          }
-
-          return featureParts.length > 0 ? (
-            <span className="text-xs text-muted-foreground font-mono">
-              {featureParts.join(' • ')}
-            </span>
-          ) : null
-        },
-        size: 240,
       },
       {
         accessorKey: 'source',
@@ -197,13 +186,13 @@ export function BuildHistoryTable({
             {row.getValue('source')}
           </span>
         ),
-        size: 70,
+        size: 100,
       },
       {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
-        size: 90,
+        size: 105,
       },
       {
         id: 'class',
@@ -225,7 +214,9 @@ export function BuildHistoryTable({
           }
           return null
         },
-        size: 80,
+        // Widest of the metric columns: the badge text is a failure class
+        // ("infra:teardown", "infra:provision"), not a fixed-width value.
+        size: 130,
       },
       {
         id: 'tests',
@@ -253,11 +244,13 @@ export function BuildHistoryTable({
             </span>
           )
         },
-        size: 120,
+        size: 100,
       },
       {
         accessorKey: 'started_at',
         header: 'Started',
+        // Weight nudged up over Tests/Duration to cover the sort caret that the
+        // header adds ("Started ▼") -- it is the default sort column.
         cell: ({ row }) => {
           const started = row.getValue('started_at')
           return (
@@ -269,7 +262,7 @@ export function BuildHistoryTable({
             </span>
           )
         },
-        size: 120,
+        size: 110,
       },
       {
         accessorKey: 'duration_ms',
@@ -279,7 +272,7 @@ export function BuildHistoryTable({
             {formatDuration(row.getValue('duration_ms'))}
           </span>
         ),
-        size: 80,
+        size: 110,
       },
     ],
     []
@@ -300,6 +293,9 @@ export function BuildHistoryTable({
     },
     getRowId: (row) => row.id,
   })
+
+  // Denominator that turns each column's `size` weight into a percentage.
+  const totalWidth = table.getTotalSize()
 
   return (
     <div className="space-y-4">
@@ -344,7 +340,13 @@ export function BuildHistoryTable({
 
       {/* Table */}
       <div className="rounded-md border border-border">
-        <Table>
+        {/*
+          table-fixed, not auto: under auto layout the browser reads the column
+          widths as hints and re-derives them from cell content, so a single
+          long Prow job name could blow one column out and squeeze the rest.
+          Fixed layout honours the percentages exactly.
+        */}
+        <Table className="table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -354,7 +356,9 @@ export function BuildHistoryTable({
                   return (
                     <TableHead
                       key={header.id}
-                      style={{ width: header.getSize() }}
+                      style={{
+                        width: `${(header.getSize() / totalWidth) * 100}%`,
+                      }}
                       className={`h-9 text-xs group${canSort ? ' cursor-pointer select-none hover:bg-muted/50' : ''}`}
                       onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                     >
@@ -494,6 +498,52 @@ function formatDuration(ms) {
 
   if (hours > 0) return `${hours}h ${remainingMins}m`
   return `${minutes}m`
+}
+
+/**
+ * Condense a build's Jenkins parameters into short display chips.
+ * Returns [] for builds with no recognisable parameters (e.g. Prow rows).
+ */
+function buildParamChips(build) {
+  const chips = []
+  try {
+    // parameters can be either a JSON string or already parsed object
+    const params =
+      typeof build.parameters === 'string'
+        ? JSON.parse(build.parameters || '{}')
+        : build.parameters || {}
+
+    if (params.FEATURE_GROUP) chips.push(`group:${params.FEATURE_GROUP}`)
+    if (params.NAME_PREFIX) chips.push(`prefix:${params.NAME_PREFIX}`)
+
+    // Extract host from OCP_HUB_API_URL
+    if (params.OCP_HUB_API_URL) {
+      const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
+      if (hostMatch) chips.push(`host:${hostMatch[1]}`)
+    }
+
+    let requestedVersion = null
+    if (params.EXTRA_FEATURE_VARS) {
+      const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
+      if (channelMatch) chips.push(`channel:${channelMatch[1]}`)
+      const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
+      if (versionMatch) {
+        requestedVersion = versionMatch[1]
+        chips.push(`ocp:${requestedVersion}`)
+      }
+    }
+
+    // Add the resolved cluster OCP version, but only when it differs from the
+    // requested one — ingest now derives ocp_version from the same
+    // EXTRA_FEATURE_VARS string, so showing both would repeat the value.
+    // When they DO differ the gap is the interesting part.
+    if (build.ocp_version && build.ocp_version !== requestedVersion) {
+      chips.push(`version:${build.ocp_version}`)
+    }
+  } catch {
+    // Malformed parameters JSON — show no chips rather than breaking the row.
+  }
+  return chips
 }
 
 function extractRepo(jobName, source) {
