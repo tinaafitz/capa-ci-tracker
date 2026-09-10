@@ -11,7 +11,13 @@ dist/
 .claude/skills/*
 !.claude/skills/run-app/
 
-# SQLite database files
+# SQLite database files.
+# The .bak glob matters: this repo is public and the database holds real
+# internal CI data (hostnames, console output, cluster URLs). A timestamped
+# backup like capa-ci-tracker.db.bak-20260910 does NOT match *.db, so without
+# this line a `git add -A` would publish it.
 *.db
 *.db-wal
 *.db-shm
+*.db.bak*
+*.db.backup*

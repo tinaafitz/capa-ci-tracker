@@ -118,6 +118,54 @@ function computeInfraSignature(build: Build): string {
 }
 
 // ============================================================
+// Error Message Extraction
+// ============================================================
+
+/**
+ * Markers that indicate the start of the part of an error message a human
+ * actually needs. The earliest occurrence of any of them wins, so an Ansible
+ * "fatal:" banner is preferred over the "❌ ..." message nested inside it —
+ * the banner names the task that failed, which is the more useful anchor.
+ *
+ * Ansible-driven suites (capi_tests) prefix every failure with hundreds of
+ * characters of "[WARNING]: No inventory was parsed..." plus the full list of
+ * successful TASK banners, so a naive leading slice shows only boilerplate and
+ * buries the real failure thousands of characters in.
+ *
+ * Plain substring search, not regex: these run over multi-megabyte console
+ * output and must stay linear.
+ */
+const ERROR_ANCHORS = [
+  '❌',
+  'fatal:',
+  'FAILED!',
+  'Error Details:',
+  'AssertionError',
+];
+
+const MAX_ERROR_LENGTH = 700;
+
+/**
+ * Pull the salient part of a test failure's error message, falling back to a
+ * leading slice when no anchor matches. Literal "\n" escapes (common when the
+ * message is a captured JSON payload) are turned into real newlines so the
+ * ticket description renders as markdown rather than one long line.
+ */
+export function extractSalientError(raw: string | null | undefined): string {
+  const text = (raw ?? '').trim();
+  if (!text) return 'No error message';
+
+  let start = -1;
+  for (const anchor of ERROR_ANCHORS) {
+    const i = text.indexOf(anchor);
+    if (i !== -1 && (start === -1 || i < start)) start = i;
+  }
+
+  const slice = (start === -1 ? text : text.slice(start)).slice(0, MAX_ERROR_LENGTH);
+  return slice.replace(/\\n/g, '\n').trim();
+}
+
+// ============================================================
 // Auto-Severity Classification
 // ============================================================
 
@@ -309,7 +357,7 @@ async function triageBuild(buildId: string): Promise<{
         )
       : `${build.job_name} build #${build.external_id} failed`;
     description = firstFailure
-      ? `**Error:** ${firstFailure.errorMessage?.substring(0, 500) || 'No error message'}\n\n**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n**OCP Version:** ${build.ocp_version || 'unknown'}\n**Failed Tests:** ${build.fail_count}/${build.total_count}`
+      ? `**Error:**\n\n\`\`\`\n${extractSalientError(firstFailure.errorMessage)}\n\`\`\`\n\n**Job:** ${build.job_name}\n**Build:** #${build.external_id}\n**OCP Version:** ${build.ocp_version || 'unknown'}\n**Failed Tests:** ${build.fail_count}/${build.total_count}`
       : `Build ${build.job_name} #${build.external_id} failed. ${build.fail_count} test failures out of ${build.total_count} total.`;
   }
 

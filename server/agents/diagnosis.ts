@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
 import { dbEvents } from '../triggers.js';
 import { KNOWN_ISSUES } from './known-issues.js';
+import { truncateTitle } from './ticket-title.js';
 
 const AGENT_NAME = 'diagnosis';
 
@@ -41,6 +42,10 @@ interface DiagnosisResult {
   root_cause_category: string;
   severity: string;
   matched_pattern: string;
+  /** Optional label to merge into the ticket's labels JSON array. */
+  label?: string;
+  /** Optional short phrase naming the failure, used to retitle the ticket. */
+  shortTitle?: string;
 }
 
 // ============================================================
@@ -52,7 +57,19 @@ const getBuildStmt = db.prepare(
 );
 
 const getTicketSeverityStmt = db.prepare(
-  'SELECT severity FROM support_tickets WHERE id = ?',
+  'SELECT severity, status FROM support_tickets WHERE id = ?',
+);
+
+const getTicketLabelsStmt = db.prepare(
+  'SELECT labels FROM support_tickets WHERE id = ?',
+);
+
+const updateTicketLabelsStmt = db.prepare(
+  'UPDATE support_tickets SET labels = ?, updated_at = ? WHERE id = ?',
+);
+
+const updateTicketTitleStmt = db.prepare(
+  'UPDATE support_tickets SET title = ?, updated_at = ? WHERE id = ?',
 );
 
 const updateTicketStmt = db.prepare(`
@@ -99,6 +116,19 @@ const RETRY_SENSITIVE_PATTERN_IDS = new Set(['api_rate_limit', 'repeated_timeout
 // un-truncated regex.
 const RETRY_SPAM_MARKER = /RETRYING|retries left/i;
 
+/**
+ * Name a ticket after its diagnosed cause: "[Infra] Hub login failed: capi_tests".
+ * The "[Infra]" prefix marks runs that never exercised the product, matching the
+ * shape triage already uses for builds classified as infra at ingest time.
+ */
+export function composeDiagnosedTitle(
+  result: Pick<DiagnosisResult, 'shortTitle' | 'severity'>,
+  jobName: string,
+): string {
+  const prefix = result.severity === 'infrastructure' ? '[Infra] ' : '';
+  return truncateTitle(`${prefix}${result.shortTitle}: ${jobName}`);
+}
+
 function diagnoseFailures(testFailures: TestFailure[]): DiagnosisResult | null {
   for (const failure of testFailures) {
     const fullErrorText = failure.errorMessage || '';
@@ -120,6 +150,8 @@ function diagnoseFailures(testFailures: TestFailure[]): DiagnosisResult | null {
           root_cause_category: issue.category,
           severity: issue.defaultSeverity,
           matched_pattern: issue.id,
+          label: issue.label,
+          shortTitle: issue.shortTitle,
         };
       }
     }
@@ -137,6 +169,8 @@ function diagnoseFailures(testFailures: TestFailure[]): DiagnosisResult | null {
             root_cause_category: issue.category,
             severity: issue.defaultSeverity,
             matched_pattern: issue.id,
+            label: issue.label,
+            shortTitle: issue.shortTitle,
           };
         }
       }
@@ -190,15 +224,20 @@ export async function run(params: {
     const now = new Date().toISOString();
 
     if (diagnosisResult) {
-      // Check current ticket severity to decide if we should adjust
+      // Decide whether to correct the severity. Triage assigns severity from
+      // coarse heuristics before any pattern has matched, so on a still-new
+      // ticket the matched pattern is strictly better information and should
+      // win -- otherwise a dead hub stays labelled "upstream_breakage" and
+      // reads as a CAPA regression. Once someone has moved the ticket off
+      // "new", treat the severity as human-owned and leave it alone.
       const currentTicket = getTicketSeverityStmt.get(ticket_id) as
-        | { severity: string }
+        | { severity: string; status: string }
         | undefined;
 
       if (
         currentTicket &&
-        currentTicket.severity === 'test_regression' &&
-        diagnosisResult.severity !== 'test_regression'
+        currentTicket.status === 'new' &&
+        currentTicket.severity !== diagnosisResult.severity
       ) {
         // Update ticket with adjusted severity
         updateTicketWithSeverityStmt.run(
@@ -220,6 +259,40 @@ export async function run(params: {
           now,
           ticket_id,
         );
+      }
+
+      // Retitle the ticket after the diagnosed cause. Triage had to name the
+      // ticket before anything was diagnosed, so it used the first failing
+      // test -- which, for an environment failure, is whichever test happened
+      // to run when the environment gave out. Naming a dead hub after the
+      // cluster-deletion test sends people to read CAPA deletion code that
+      // never ran. Same "new" guard as severity: once a human has picked the
+      // ticket up, the title is theirs.
+      if (diagnosisResult.shortTitle && currentTicket?.status === 'new') {
+        updateTicketTitleStmt.run(
+          composeDiagnosedTitle(diagnosisResult, build.job_name),
+          now,
+          ticket_id,
+        );
+      }
+
+      // Merge the pattern's label into the ticket's labels JSON array without
+      // clobbering existing labels (e.g. source, ocp-version, infra).
+      if (diagnosisResult.label) {
+        const labelRow = getTicketLabelsStmt.get(ticket_id) as
+          | { labels: string | null }
+          | undefined;
+        let currentLabels: string[] = [];
+        try {
+          const parsed = JSON.parse(labelRow?.labels || '[]');
+          if (Array.isArray(parsed)) currentLabels = parsed;
+        } catch {
+          currentLabels = [];
+        }
+        if (!currentLabels.includes(diagnosisResult.label)) {
+          currentLabels.push(diagnosisResult.label);
+          updateTicketLabelsStmt.run(JSON.stringify(currentLabels), now, ticket_id);
+        }
       }
 
       // Insert diagnosis_completed activity

@@ -297,10 +297,43 @@ describe('classifyFailure', () => {
   });
 
   // ---------------------------------------------------------------
+  // Environment fatal before the product ran (Rule 3)
+  // ---------------------------------------------------------------
+
+  it('classifies a hub login failure as infra even though every spec failed', () => {
+    // capi_tests #352: the hub API returned 500 at login, so all 4 specs
+    // reported failures. The failCount gate would otherwise file this as a
+    // product_test_failure and the Builds list would show no Reason at all.
+    const result = classifyFailure({
+      status: 'failure',
+      jobName: 'capi_tests',
+      reason:
+        'fatal: [localhost]: FAILED! => {"msg": "❌ OPENSHIFT LOGIN FAILED ❌ ' +
+        'Failed to login to OpenShift Hub cluster. Error Details: error: Internal Server Error"}',
+      failCount: 4,
+    });
+    expect(result.failure_class).toBe('infra_hub');
+    expect(result.is_infra).toBe(1);
+    expect(result.failure_reason).toBe('OPENSHIFT LOGIN FAILED');
+  });
+
+  it('still files a genuine product failure that merely mentions login', () => {
+    const result = classifyFailure({
+      status: 'failure',
+      jobName: 'capi_tests',
+      reason: 'Expected ROSAControlPlane login config to be set, but it was nil',
+      failCount: 1,
+    });
+    expect(result.failure_class).toBe('product_test_failure');
+    expect(result.is_infra).toBe(0);
+  });
+
+  // ---------------------------------------------------------------
   // isInfraClass helper
   // ---------------------------------------------------------------
 
   it('isInfraClass returns true for infra_ prefixed classes', () => {
+    expect(isInfraClass('infra_hub')).toBe(true);
     expect(isInfraClass('infra_lease')).toBe(true);
     expect(isInfraClass('infra_auth')).toBe(true);
     expect(isInfraClass('infra_teardown')).toBe(true);

@@ -125,12 +125,29 @@ export function stripRedundantKeyPrefix(title: string): string {
 }
 
 /**
+ * If `className` ends with `name`, return the leading describe-block text with
+ * the trailing `name` removed — an empty string when the two are identical.
+ * Returns null when `className` does not end with `name`, i.e. this is not the
+ * Ginkgo full-spec shape.
+ */
+function describePrefix(className: string, name: string): string | null {
+  const cn = className.trim();
+  const nm = name.trim();
+  if (!nm || !cn.toLowerCase().endsWith(nm.toLowerCase())) return null;
+  return cn.slice(0, cn.length - nm.length).trim();
+}
+
+/**
  * Compose a ticket title from a test failure's className + name.
  *
  * Rules:
  *  - If `name` already starts with the Jira key contained in `className`
  *    (i.e. the two carry the same "KEY: summary" payload), use just `name`
  *    rather than prepending the redundant className.
+ *  - If `className` already ends with `name` (Ginkgo reports the full spec
+ *    text — describe blocks + it-text — in className, and the it-text alone in
+ *    name), keep the describe prefix and join it to `name` with ": " instead of
+ *    repeating the it-text.
  *  - Otherwise join as "className: name".
  *  - Collapse any immediately-repeated segment (idempotency guard).
  *  - Hard-truncate on a word boundary.
@@ -154,8 +171,15 @@ export function composeTicketTitle(
     // If both sides carry the same Jira key + summary (the Jenkins RHACM4K
     // case), the className is redundant — keep only the name.
     const nameKey = nm.match(JIRA_KEY)?.[0];
+    const describe = describePrefix(cn, nm);
     if (nameKey && cn.includes(nameKey)) {
       composed = nm;
+    } else if (describe !== null) {
+      // Ginkgo full-spec className: "<describe blocks> <it text>". Joining it
+      // to `name` verbatim repeats the it-text, and the repeat is invisible
+      // because truncation usually cuts it off — so the title silently loses
+      // its tail. Keep the describe context as a labelled prefix instead.
+      composed = describe ? `${describe}: ${nm}` : nm;
     } else {
       composed = `${cn}: ${nm}`;
     }
