@@ -30,11 +30,28 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { formatRelative, formatAbsolute } from '@/lib/utils'
 
 /**
+ * Short labels for failure classes that carry no `infra_` prefix to strip.
+ * The classifier spells these out in full ("cleanup_verification_failure"),
+ * which is wider than the whole Reason column -- the badge ran over the Tests
+ * digits in the next column. The full value stays in the badge's tooltip.
+ */
+const INFRA_CLASS_LABELS = {
+  cleanup_verification_failure: 'cleanup',
+}
+
+/**
  * Map a failure_class value to a short human label for the infra badge.
  * infra_lease -> "lease", infra_auth -> "auth", etc.
  */
 function infraClassLabel(failureClass) {
   if (!failureClass) return 'infra'
+  // hasOwn, not a bare lookup: failure_class is writable through the PATCH
+  // API, and a value like "constructor" or "toString" would otherwise resolve
+  // up the prototype chain and hand a *function* back as the label for React
+  // to render.
+  if (Object.hasOwn(INFRA_CLASS_LABELS, failureClass)) {
+    return INFRA_CLASS_LABELS[failureClass]
+  }
   if (failureClass.startsWith('infra_')) return failureClass.slice(6)
   return failureClass // e.g. "aborted"
 }
@@ -45,11 +62,17 @@ function infraClassLabel(failureClass) {
  */
 function InfraBadge({ failureClass, failureReason, title }) {
   const label = infraClassLabel(failureClass)
-  const displayTitle = title || failureReason || undefined
+  // The label is abbreviated, so keep the raw class discoverable on hover.
+  const displayTitle =
+    title || [failureClass, failureReason].filter(Boolean).join(' — ') || undefined
   return (
     <Badge
       variant="outline"
-      className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px]"
+      // max-w-full/truncate override the base badge's `w-fit shrink-0`, which
+      // sizes to content and refuses to shrink. Without them an unmapped long
+      // class spills out of the cell and over the next column instead of
+      // clipping. Belt-and-braces behind INFRA_CLASS_LABELS above.
+      className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px] max-w-full truncate"
       title={displayTitle}
     >
       infra:{label}
@@ -513,14 +536,16 @@ function buildParamChips(build) {
         ? JSON.parse(build.parameters || '{}')
         : build.parameters || {}
 
-    if (params.FEATURE_GROUP) chips.push(`group:${params.FEATURE_GROUP}`)
-    if (params.NAME_PREFIX) chips.push(`prefix:${params.NAME_PREFIX}`)
-
-    // Extract host from OCP_HUB_API_URL
+    // Order is fixed: host, then prefix, then everything else. The line is
+    // truncated on narrow screens, so the two chips that identify WHICH run
+    // this was have to be the two that survive.
     if (params.OCP_HUB_API_URL) {
       const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
       if (hostMatch) chips.push(`host:${hostMatch[1]}`)
     }
+
+    if (params.NAME_PREFIX) chips.push(`prefix:${params.NAME_PREFIX}`)
+    if (params.FEATURE_GROUP) chips.push(`group:${params.FEATURE_GROUP}`)
 
     let requestedVersion = null
     if (params.EXTRA_FEATURE_VARS) {
