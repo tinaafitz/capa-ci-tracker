@@ -8,7 +8,10 @@
  * opens with hundreds of characters of Ansible boilerplate.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../db/connection.js', () => ({ db: { prepare: () => ({ get: () => null, run: () => null, all: () => [] }) } }));
+
 import { extractOcpVersion } from '../agents/ingest-jenkins.js';
 import { extractSalientError } from '../agents/triage.js';
 import { KNOWN_ISSUES } from '../agents/known-issues.js';
