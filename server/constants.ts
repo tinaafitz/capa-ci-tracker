@@ -6,5 +6,5 @@
 export const JSON_COLUMNS = new Set([
   'parameters', 'test_failures', 'raw_payload', 'metadata',
   'labels', 'phases', 'upstream_commits', 'error_lines',
-  'input_payload', 'output_payload',
+  'input_payload', 'output_payload', 'prow_suites',
 ]);

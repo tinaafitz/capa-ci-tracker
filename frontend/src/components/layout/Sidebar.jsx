@@ -11,9 +11,20 @@ import { useAppState, useAuthContext } from '@/store/AppContext'
 
 const navItems = [
   {
+    to: '/transactions',
+    label: 'Builds',
+    shortcut: '1',
+    icon: (
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
+    ),
+    countKey: 'failedBuilds',
+  },
+  {
     to: '/',
     label: 'Activity',
-    shortcut: '1',
+    shortcut: '2',
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -24,24 +35,14 @@ const navItems = [
   {
     to: '/tickets',
     label: 'Tickets',
-    shortcut: '2',
+    shortcut: '3',
     icon: (
       <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
       </svg>
     ),
     countKey: 'openTickets',
-  },
-  {
-    to: '/transactions',
-    label: 'Builds',
-    shortcut: '3',
-    icon: (
-      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-      </svg>
-    ),
-    countKey: 'failedBuilds',
+    comingSoon: true,
   },
   {
     to: '/pipeline',
@@ -53,6 +54,7 @@ const navItems = [
       </svg>
     ),
     countKey: 'activeTickets',
+    comingSoon: true,
   },
 ]
 
@@ -97,6 +99,36 @@ export function Sidebar({ collapsed, onToggle }) {
       <nav className="flex-1 flex flex-col gap-1 p-2">
         {navItems.map((item) => {
           const count = item.countKey ? counts[item.countKey] : null
+
+          if (item.comingSoon) {
+            const dimContent = (
+              <div
+                key={item.to}
+                className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm opacity-40 cursor-not-allowed select-none ${
+                  collapsed ? 'justify-center px-2' : ''
+                }`}
+              >
+                <span className="shrink-0">{item.icon}</span>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1">{item.label}</span>
+                    <span className="text-xs italic">Not active</span>
+                  </>
+                )}
+              </div>
+            )
+
+            if (collapsed) {
+              return (
+                <Tooltip key={item.to} delayDuration={0}>
+                  <TooltipTrigger render={dimContent} />
+                  <TooltipContent side="right">{item.label} — Not active</TooltipContent>
+                </Tooltip>
+              )
+            }
+
+            return dimContent
+          }
 
           const linkContent = (
             <NavLink

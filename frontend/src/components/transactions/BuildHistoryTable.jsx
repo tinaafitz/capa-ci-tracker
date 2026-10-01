@@ -117,8 +117,8 @@ export function BuildHistoryTable({
   onHideInfraChange,
   onFiltersChange,
   onPageChange,
-  onBuildClick,
 }) {
+  const [expandedIds, setExpandedIds] = useState(new Set())
   // `size` below is a RELATIVE WEIGHT, not a pixel width. The header render
   // divides each one by the table's total to emit a percentage, so the columns
   // always sum to 100% and share any surplus width in proportion. Fixed pixel
@@ -138,6 +138,14 @@ export function BuildHistoryTable({
           const jobUrl = row.original.job_url
           const repo = extractRepo(row.original.job_name, row.original.source)
           const paramChips = buildParamChips(row.original).join(' • ')
+          const prowSuites = (() => {
+            try {
+              const raw = typeof row.original.prow_suites === 'string'
+                ? JSON.parse(row.original.prow_suites || '[]')
+                : row.original.prow_suites || []
+              return Array.isArray(raw) ? raw : []
+            } catch { return [] }
+          })()
 
           // Jenkins job names are short ("capi_tests") with a 3-digit build, so
           // they fit on one line together. Prow pairs a very long generated job
@@ -190,6 +198,24 @@ export function BuildHistoryTable({
                   title={paramChips}
                 >
                   {paramChips}
+                </span>
+              )}
+              {prowSuites.length > 0 && (
+                <span className="flex items-center gap-1 flex-wrap">
+                  {prowSuites.map((s, i) => (
+                    <span
+                      key={i}
+                      title={`${s.name}${s.duration_s != null ? ` — ${Math.round(s.duration_s / 60)}m` : ''}`}
+                      className={`text-[10px] font-mono px-1 rounded ${
+                        s.status === 'PASSED' ? 'text-emerald-700 bg-emerald-50' :
+                        s.status === 'FAILED' ? 'text-red-700 bg-red-50' :
+                        'text-amber-700 bg-amber-50'
+                      }`}
+                    >
+                      {s.status === 'PASSED' ? '✓' : s.status === 'FAILED' ? '✗' : '~'}{' '}
+                      {s.name.replace(/^(Install |CAPA |ROSA HCP |Upgrade ROSA HCP |Add |Delete )/, '').slice(0, 14)}
+                    </span>
+                  ))}
                 </span>
               )}
             </div>
@@ -441,26 +467,101 @@ export function BuildHistoryTable({
             ) : (
               table.getRowModel().rows.map((row) => {
                 const isFailed = row.original.status === 'failure'
+                const isExpanded = expandedIds.has(row.original.id)
+                const build = row.original
+
+                // Parse suites for expanded view
+                const suites = (() => {
+                  try {
+                    const raw = typeof build.prow_suites === 'string'
+                      ? JSON.parse(build.prow_suites || '[]')
+                      : build.prow_suites || []
+                    return Array.isArray(raw) ? raw : []
+                  } catch { return [] }
+                })()
+
+                // Build summary text
+                const summaryText = (() => {
+                  if (build.status === 'success') return `Build passed in ${build.duration_ms ? formatDuration(build.duration_ms) : '--'}.`
+                  if (build.status === 'aborted') return 'Build was aborted before completion.'
+                  const isInfra = build.is_infra === 1 || build.is_infra === '1'
+                  if (isInfra) {
+                    const label = build.failure_class?.replace(/^infra_/, '') || 'infra'
+                    return [`CI infrastructure failure (${label}).`, build.failure_reason].filter(Boolean).join(' ')
+                  }
+                  if (suites.length > 0) {
+                    const passed = suites.filter(s => s.status === 'PASSED').length
+                    const failed = suites.filter(s => s.status === 'FAILED').map(s => s.name)
+                    const partial = suites.filter(s => s.status === 'PARTIAL').map(s => s.name)
+                    const parts = [`${passed} of ${suites.length} suites passed.`]
+                    if (failed.length > 0) parts.push(`Failed: ${failed.join(', ')}.`)
+                    if (partial.length > 0) parts.push(`Partial: ${partial.join(', ')}.`)
+                    if (build.failure_reason) parts.push(build.failure_reason)
+                    return parts.join(' ')
+                  }
+                  const testFailures = build.test_failures || []
+                  const parts = []
+                  const pass = build.pass_count || 0
+                  const fail = build.fail_count || 0
+                  const total = pass + fail + (build.skip_count || 0)
+                  if (total > 0 && testFailures.length > 0) parts.push(`${pass} of ${total} tests passed.`)
+                  if (testFailures.length > 0) {
+                    const names = testFailures.slice(0, 3).map(f => f.name).filter(Boolean)
+                    if (names.length) parts.push(`Failures: ${names.join(', ')}${testFailures.length > 3 ? ` +${testFailures.length - 3} more` : ''}.`)
+                  }
+                  if (build.failure_reason) parts.push(build.failure_reason)
+                  if (parts.length === 0 && build.status === 'failure') parts.push('Build failed.')
+                  return parts.join(' ') || null
+                })()
+
+                const colCount = row.getVisibleCells().length
+
                 return (
-                  <TableRow
-                    key={row.id}
-                    className={`cursor-pointer hover:bg-muted/50 ${statusBorderClass(
-                      row.original.status
-                    )} ${isFailed ? 'font-medium' : ''}`}
-                    onClick={() => onBuildClick(row.original)}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
-                      return (
-                        <TableCell key={cell.id} className={`py-2 ${cellClassName}`}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      )
+                  <>
+                    <TableRow
+                      key={row.id}
+                      className={`cursor-pointer hover:bg-muted/50 ${statusBorderClass(build.status)} ${isFailed ? 'font-medium' : ''} ${isExpanded ? 'bg-muted/30' : ''}`}
+                      onClick={() => setExpandedIds(prev => {
+                      const next = new Set(prev)
+                      isExpanded ? next.delete(build.id) : next.add(build.id)
+                      return next
                     })}
-                  </TableRow>
+                    >
+                      {row.getVisibleCells().map((cell) => {
+                        const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
+                        return (
+                          <TableCell key={cell.id} className={`py-2 ${cellClassName}`}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow key={`${row.id}-expanded`} className="bg-muted/20 hover:bg-muted/20">
+                        <TableCell colSpan={colCount} className="py-3 px-6">
+                          <div className="flex flex-col gap-3">
+                            {summaryText && (
+                              <p className="text-xs text-muted-foreground">{summaryText}</p>
+                            )}
+                            {suites.length > 0 && (
+                              <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+                                {suites.map((s, i) => (
+                                  <div key={i} className="flex items-center justify-between text-xs font-mono">
+                                    <span className={`${s.status === 'FAILED' ? 'text-red-600 font-semibold' : s.status === 'PARTIAL' ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                      {s.status === 'PASSED' ? '✓' : s.status === 'FAILED' ? '✗' : '~'} {s.name}
+                                    </span>
+                                    <span className="text-muted-foreground ml-4 shrink-0">
+                                      {s.duration_s != null ? formatDuration(s.duration_s * 1000) : ''}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 )
               })
             )}
@@ -535,6 +636,17 @@ function buildParamChips(build) {
       typeof build.parameters === 'string'
         ? JSON.parse(build.parameters || '{}')
         : build.parameters || {}
+
+    // Prow-specific chips — release, profile, target from prowjob.json metadata
+    if (build.source === 'prow') {
+      if (params.name_prefix) chips.push(`prefix:${params.name_prefix}`)
+      if (params.channel) chips.push(`channel:${params.channel}`)
+      if (params.ocp_version) chips.push(`ocp:${params.ocp_version}`)
+      else if (params.release) chips.push(`release:${params.release}`)
+      if (params.profile) chips.push(`profile:${params.profile.replace(/^openshift-/, '')}`)
+      if (params.target) chips.push(`target:${params.target}`)
+      return chips
+    }
 
     // Order is fixed: host, then prefix, then everything else. The line is
     // truncated on narrow screens, so the two chips that identify WHICH run

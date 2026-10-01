@@ -1,17 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Separator } from '@/components/ui/separator'
 import { BuildTrendChart } from '@/components/transactions/BuildTrendChart'
 import { BuildHistoryTable } from '@/components/transactions/BuildHistoryTable'
 import { BuildStatTiles } from '@/components/transactions/BuildStatTiles'
-import { BuildDetail } from '@/components/transactions/BuildDetail'
 import { useBuilds, useBuildStats, useBuildTrendData } from '@/hooks/useBuilds'
-import { useAppState, useAppActions } from '@/store/AppContext'
 import { RefreshIngestButton } from '@/components/shared/RefreshIngestButton'
 
 export function TransactionsPage() {
-  const { selectedBuild, buildDetailOpen } = useAppState()
-  const { selectBuild, closeBuildDetail } = useAppActions()
 
   const [searchParams] = useSearchParams()
   const [filters, setFilters] = useState(() => ({
@@ -34,17 +30,10 @@ export function TransactionsPage() {
 
   const { data: trendData, loading: trendLoading } = useBuildTrendData(30)
 
-  const handleFiltersChange = useCallback((newFilters) => {
+  const handleFiltersChange = (newFilters) => {
     setFilters(newFilters)
     setPage(1)
-  }, [])
-
-  const handleBuildClick = useCallback(
-    (build) => {
-      selectBuild(build)
-    },
-    [selectBuild]
-  )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -100,18 +89,8 @@ export function TransactionsPage() {
           onHideInfraChange={setHideInfra}
           onFiltersChange={handleFiltersChange}
           onPageChange={setPage}
-          onBuildClick={handleBuildClick}
         />
       </div>
-
-      {/* Build detail sheet */}
-      <BuildDetail
-        build={selectedBuild}
-        open={buildDetailOpen}
-        onOpenChange={(open) => {
-          if (!open) closeBuildDetail()
-        }}
-      />
     </div>
   )
 }

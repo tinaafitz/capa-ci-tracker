@@ -11,6 +11,7 @@ import { db } from '../db/connection.js';
 import { afterBuildInsert } from '../triggers.js';
 import { classifyFailure } from './classify-failure.js';
 import { INGEST_FLOOR_MS, INGEST_FLOOR_LABEL, isBeforeFloor } from './ingest-floor.js';
+import { parseBuildLogSuites } from './ingest-prow.js';
 
 const AGENT_NAME = 'ingest-jenkins';
 
@@ -223,8 +224,8 @@ const upsertBuildStmt = db.prepare(`
   INSERT INTO builds (id, source, external_id, job_name, job_url, status,
     pass_count, fail_count, skip_count, total_count, duration_ms,
     started_at, finished_at, ocp_version, parameters, test_failures,
-    raw_payload, failure_class, failure_reason, is_infra, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    raw_payload, failure_class, failure_reason, is_infra, prow_suites, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (source, external_id, job_name) DO UPDATE SET
     status=excluded.status, pass_count=excluded.pass_count,
     fail_count=excluded.fail_count, skip_count=excluded.skip_count,
@@ -232,6 +233,7 @@ const upsertBuildStmt = db.prepare(`
     finished_at=excluded.finished_at, ocp_version=excluded.ocp_version,
     test_failures=excluded.test_failures, raw_payload=excluded.raw_payload,
     updated_at=excluded.updated_at,
+    prow_suites = COALESCE(excluded.prow_suites, builds.prow_suites),
     -- Jenkins classification is deterministic from the build's own test report,
     -- which is fetched on every pass. The freshly-computed value is therefore
     -- always authoritative -- take it unconditionally. (An upgrade-only rule
@@ -253,7 +255,7 @@ const insertActivityStmt = db.prepare(`
 `);
 
 const getBuildIdStmt = db.prepare(`
-  SELECT id, status, failure_class, failure_reason, is_infra FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
+  SELECT id, status, failure_class, failure_reason, is_infra, prow_suites FROM builds WHERE source = 'jenkins' AND external_id = ? AND job_name = ?
 `);
 
 async function ingestJob(
@@ -320,7 +322,7 @@ async function ingestJob(
 
       // Check if this build already exists (to avoid unnecessary triage re-invocations)
       const existingBuild = getBuildIdStmt.get(String(build.number), jobName) as
-        | { id: string; status: string; failure_class: string | null; failure_reason: string | null; is_infra: number }
+        | { id: string; status: string; failure_class: string | null; failure_reason: string | null; is_infra: number; prow_suites: string | null }
         | undefined;
       const isNew = !existingBuild;
 
@@ -391,6 +393,21 @@ async function ingestJob(
         classification.failure_reason = 'Cleanup completed; verification step failed on deleted cluster (not test-related)';
       }
 
+      // Fetch console log for suite parsing when not yet stored
+      let prowSuitesJson: string | null = null;
+      if (build.result && !existingBuild?.prow_suites) {
+        try {
+          const logResp = await fetchJenkins(`${build.url}consoleText`, { signal: AbortSignal.timeout(20_000) });
+          if (logResp.ok) {
+            const logText = await logResp.text();
+            const suites = parseBuildLogSuites(logText);
+            if (suites.length > 0) prowSuitesJson = JSON.stringify(suites);
+          }
+        } catch {
+          // Non-blocking — continue without suites
+        }
+      }
+
       // Upsert the build
       upsertBuildStmt.run(
         buildId,
@@ -413,6 +430,7 @@ async function ingestJob(
         classification.failure_class,
         classification.failure_reason,
         classification.is_infra,
+        prowSuitesJson,
         now,
         now,
       );
