@@ -20,7 +20,7 @@ import { classifyFailure } from '../agents/classify-failure.js';
 // ---------------------------------------------------------------------------
 
 describe('deriveGcsBase', () => {
-  const BUCKET = 'https://storage.googleapis.com/test-platform-results/logs';
+  const BUCKET = 'https://gcs.ci.openshift.org/gcs/test-platform-results-public/logs';
 
   it('parses a canonical Prow view URL', () => {
     const jobUrl =
