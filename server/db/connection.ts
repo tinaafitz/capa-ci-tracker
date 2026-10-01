@@ -8,19 +8,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const db = new DatabaseSync(config.dbPath);
 
-// Performance pragmas
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA busy_timeout = 5000');  // wait up to 5s instead of failing immediately on lock
+// Enable journal mode (NORMAL is safer than WAL for SQLite Node binding edge cases, but NORMAL still enables concurrent reads)
+db.exec('PRAGMA journal_mode = NORMAL');
+// Robust concurrent access
+db.exec('PRAGMA busy_timeout = 10000');  // wait up to 10s instead of failing immediately on lock
 db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA synchronous = NORMAL');
+db.exec('PRAGMA synchronous = FULL');  // FULL ensures durability, prevents "readonly" errors on concurrent writes
 db.exec('PRAGMA cache_size = -64000');
-
-// Drop views that need to be recreated with updated column lists.
-// CREATE VIEW IF NOT EXISTS won't update an existing view, so we drop first.
-db.exec('DROP VIEW IF EXISTS v_ticket_summary');
-db.exec('DROP VIEW IF EXISTS v_ticket_lifecycle');
+db.exec('PRAGMA temp_store = MEMORY');
 
 // Apply schema (idempotent -- uses CREATE TABLE IF NOT EXISTS / CREATE VIEW IF NOT EXISTS)
+// Views are only created if they don't exist; they are NOT dropped/recreated on every startup
+// to avoid losing data or disrupting concurrent queries.
 const schemaPath = path.join(__dirname, 'schema.sql');
 const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
 db.exec(schemaSql);
@@ -39,6 +38,7 @@ function ensureColumn(table: string, column: string, definition: string): void {
 ensureColumn('builds', 'failure_class',  'TEXT');
 ensureColumn('builds', 'failure_reason', 'TEXT');
 ensureColumn('builds', 'is_infra',       'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('builds', 'prow_suites',    'TEXT');
 ensureColumn('support_tickets', 'failure_class', 'TEXT');
 
 console.log(`[db] SQLite database opened at ${config.dbPath}`);

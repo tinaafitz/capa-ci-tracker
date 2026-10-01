@@ -164,12 +164,13 @@ export function deriveGcsBase(
   jobName: string,
   externalId: string,
 ): string | null {
-  const BUCKET = 'https://storage.googleapis.com/test-platform-results/logs';
+  // Public proxy — no auth required. storage.googleapis.com/test-platform-results returns 403.
+  const BUCKET = 'https://gcs.ci.openshift.org/gcs/test-platform-results-public/logs';
 
   if (jobUrl) {
-    // Try the canonical Prow view URL pattern
+    // Try the canonical Prow view URL pattern (both public and old bucket names)
     const match = jobUrl.match(
-      /\/view\/gs\/test-platform-results\/logs\/([^/]+)\/([^/]+)\/?$/,
+      /\/view\/gs\/test-platform-results(?:-public)?\/logs\/([^/]+)\/([^/]+)\/?$/,
     );
     if (match) {
       return `${BUCKET}/${match[1]}/${match[2]}`;
@@ -177,7 +178,7 @@ export function deriveGcsBase(
 
     // Some URLs encode the GCS path directly
     const gcsMatch = jobUrl.match(
-      /test-platform-results\/logs\/([^/]+)\/([^/]+)\/?/,
+      /test-platform-results(?:-public)?\/logs\/([^/]+)\/([^/]+)\/?/,
     );
     if (gcsMatch) {
       return `${BUCKET}/${gcsMatch[1]}/${gcsMatch[2]}`;
@@ -222,10 +223,105 @@ export function extractReasonFromBuildLog(log: string): string | null {
   return null;
 }
 
+interface ProwJobMetadata {
+  release: string | null;
+  cloud: string | null;
+  profile: string | null;
+  target: string | null;
+  namePrefix: string | null;
+  ocpVersion: string | null;
+  channel: string | null;
+}
+
+interface ProwSuiteResult {
+  name: string;
+  status: 'PASSED' | 'FAILED' | 'PARTIAL' | 'UNKNOWN';
+  duration_s: number | null;
+}
+
+export function parseDurationToSeconds(raw: string): number | null {
+  if (!raw) return null;
+  const minSec = raw.match(/(\d+)m\s*(\d+(?:\.\d+)?)s/);
+  if (minSec) return Math.round(parseInt(minSec[1], 10) * 60 + parseFloat(minSec[2]));
+  const minOnly = raw.match(/^(\d+)m$/);
+  if (minOnly) return parseInt(minOnly[1], 10) * 60;
+  const secOnly = raw.match(/^(\d+(?:\.\d+)?)s$/);
+  if (secOnly) return Math.round(parseFloat(secOnly[1]));
+  return null;
+}
+
+export function parseBuildLogSuites(logText: string): ProwSuiteResult[] {
+  // Strip ANSI escape codes so regexes match cleanly
+  // eslint-disable-next-line no-control-regex
+  const clean = logText.replace(/\x1b\[[0-9;]*m/g, '');
+
+  const results: ProwSuiteResult[] = [];
+
+  // Split on suite header lines: "📋 Test Suite: <name>"
+  const suiteBlocks = clean.split(/📋 Test Suite:\s*/);
+  for (let i = 1; i < suiteBlocks.length; i++) {
+    const block = suiteBlocks[i];
+    const nameMatch = block.match(/^(.+)/);
+    if (!nameMatch) continue;
+    const name = nameMatch[1].trim();
+
+    // Look for SUITE SUMMARY block within this suite's section
+    const passedMatch = block.match(/✓ Passed:\s*(\d+)/);
+    const failedMatch = block.match(/✗ Failed:\s*(\d+)/);
+    const durationMatch = block.match(/⏱️\s+Duration:\s*(.+)/);
+
+    const passed = passedMatch ? parseInt(passedMatch[1], 10) : 0;
+    const failed = failedMatch ? parseInt(failedMatch[1], 10) : 0;
+
+    let status: ProwSuiteResult['status'] = 'UNKNOWN';
+    if (passedMatch || failedMatch) {
+      if (failed === 0 && passed > 0) status = 'PASSED';
+      else if (failed > 0 && passed > 0) status = 'PARTIAL';
+      else if (failed > 0 && passed === 0) status = 'FAILED';
+    }
+
+    results.push({
+      name,
+      status,
+      duration_s: durationMatch ? parseDurationToSeconds(durationMatch[1].trim()) : null,
+    });
+  }
+  return results;
+}
+
+export function extractProwJobMetadata(json: unknown): ProwJobMetadata {
+  const result: ProwJobMetadata = { release: null, cloud: null, profile: null, target: null, namePrefix: null, ocpVersion: null, channel: null };
+  try {
+    const j = json as { metadata?: { labels?: Record<string, string> }; spec?: { job?: string } };
+    const labels = j?.metadata?.labels || {};
+    result.release = labels['job-release'] || null;
+    result.cloud = labels['ci-operator.openshift.io/cloud'] || null;
+    result.profile = labels['ci-operator.openshift.io/cloud-cluster-profile'] || null;
+    result.namePrefix = null; // populated later from build-log.txt
+    result.ocpVersion = null;
+    result.channel = null;
+    // Try label first, then parse from job name (e.g. "..._capa-e2e-capa-e2e-full" -> "capa-e2e-full")
+    result.target = labels['ci-operator.openshift.io/target'] || null;
+    if (!result.target && j?.spec?.job) {
+      const m = j.spec.job.match(/_capa-e2e-(capa-e2e(?:-[a-z]+)?)$/);
+      if (m) result.target = m[1];
+      else {
+        const m2 = j.spec.job.match(/_?(capa-e2e(?:-[a-z]+)?)$/);
+        if (m2) result.target = m2[1];
+      }
+    }
+  } catch {
+    // Return nulls on any parse error
+  }
+  return result;
+}
+
 interface GcsArtifacts {
   testsPassed: boolean | null;
   description: string | null;
   reason: string | null;
+  prowJobMeta: ProwJobMetadata | null;
+  suites: ProwSuiteResult[];
 }
 
 /**
@@ -238,7 +334,7 @@ export async function fetchProwArtifacts(
   jobName: string,
   externalId: string,
 ): Promise<GcsArtifacts> {
-  const result: GcsArtifacts = { testsPassed: null, description: null, reason: null };
+  const result: GcsArtifacts = { testsPassed: null, description: null, reason: null, prowJobMeta: null, suites: [] };
 
   const gcsBase = deriveGcsBase(jobUrl, jobName, externalId);
   if (!gcsBase) return result;
@@ -267,9 +363,32 @@ export async function fetchProwArtifacts(
       const json = (await resp.json()) as { status?: { description?: string } };
       const desc = json.status?.description;
       if (desc) result.description = desc;
+      result.prowJobMeta = extractProwJobMetadata(json);
     }
   } catch {
     // Continue
+  }
+
+  // --- artifacts/{target}/rosa-e2e-capa/build-log.txt (suite-level results + name_prefix) ---
+  if (result.prowJobMeta?.target) {
+    try {
+      const artifactUrl = `${gcsBase}/artifacts/${result.prowJobMeta.target}/rosa-e2e-capa/build-log.txt`;
+      const resp = await fetch(artifactUrl, { signal: AbortSignal.timeout(15_000) });
+      if (resp.ok) {
+        const text = await resp.text();
+        const suites = parseBuildLogSuites(text);
+        if (suites.length > 0) result.suites = suites;
+        const prefixMatch = text.match(/name_prefix=([a-z0-9]+)/);
+        if (prefixMatch && result.prowJobMeta) result.prowJobMeta.namePrefix = prefixMatch[1];
+        const versionMatch = text.match(/Resolved OpenShift version: [0-9.]+ → ([0-9.]+) \(channel: ([a-z]+)\)/);
+        if (versionMatch && result.prowJobMeta) {
+          result.prowJobMeta.ocpVersion = versionMatch[1];
+          result.prowJobMeta.channel = versionMatch[2];
+        }
+      }
+    } catch {
+      // Continue
+    }
   }
 
   // --- build-log.txt (most useful for lease / 401 errors) ---
@@ -282,6 +401,11 @@ export async function fetchProwArtifacts(
       const text = await resp.text();
       const reason = extractReasonFromBuildLog(text);
       if (reason) result.reason = reason;
+      // Fallback suite parse from top-level log if artifact log yielded nothing
+      if (result.suites.length === 0) {
+        const suites = parseBuildLogSuites(text);
+        if (suites.length > 0) result.suites = suites;
+      }
     }
   } catch {
     // Continue
@@ -295,8 +419,8 @@ const upsertBuildStmt = db.prepare(`
   INSERT INTO builds (id, source, external_id, job_name, job_url, status,
     pass_count, fail_count, skip_count, total_count, duration_ms,
     started_at, finished_at, ocp_version, parameters, test_failures,
-    raw_payload, failure_class, failure_reason, is_infra, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    raw_payload, failure_class, failure_reason, is_infra, prow_suites, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (source, external_id, job_name) DO UPDATE SET
     status=excluded.status, pass_count=excluded.pass_count,
     fail_count=excluded.fail_count, skip_count=excluded.skip_count,
@@ -304,6 +428,8 @@ const upsertBuildStmt = db.prepare(`
     finished_at=excluded.finished_at, ocp_version=excluded.ocp_version,
     test_failures=excluded.test_failures, raw_payload=excluded.raw_payload,
     updated_at=excluded.updated_at,
+    parameters = excluded.parameters,
+    prow_suites = COALESCE(excluded.prow_suites, builds.prow_suites),
     -- Never downgrade a confident infra classification to a weaker one.
     -- Only update when: incoming is infra (is_infra=1), OR stored is not yet
     -- infra (is_infra=0), OR stored class is null/unknown/product_test_failure.
@@ -339,8 +465,8 @@ const upsertBuildAuthoritativeStmt = db.prepare(`
   INSERT INTO builds (id, source, external_id, job_name, job_url, status,
     pass_count, fail_count, skip_count, total_count, duration_ms,
     started_at, finished_at, ocp_version, parameters, test_failures,
-    raw_payload, failure_class, failure_reason, is_infra, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    raw_payload, failure_class, failure_reason, is_infra, prow_suites, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT (source, external_id, job_name) DO UPDATE SET
     status=excluded.status, pass_count=excluded.pass_count,
     fail_count=excluded.fail_count, skip_count=excluded.skip_count,
@@ -348,6 +474,8 @@ const upsertBuildAuthoritativeStmt = db.prepare(`
     finished_at=excluded.finished_at, ocp_version=excluded.ocp_version,
     test_failures=excluded.test_failures, raw_payload=excluded.raw_payload,
     updated_at=excluded.updated_at,
+    parameters = excluded.parameters,
+    prow_suites = COALESCE(excluded.prow_suites, builds.prow_suites),
     failure_class = excluded.failure_class,
     failure_reason = excluded.failure_reason,
     is_infra = excluded.is_infra
@@ -364,7 +492,7 @@ const insertActivityStmt = db.prepare(`
 `);
 
 const getBuildIdStmt = db.prepare(`
-  SELECT id, failure_class, failure_reason, is_infra FROM builds WHERE source = 'prow' AND external_id = ? AND job_name = ?
+  SELECT id, failure_class, failure_reason, is_infra, prow_suites, parameters FROM builds WHERE source = 'prow' AND external_id = ? AND job_name = ?
 `);
 
 export async function run(): Promise<AgentResult> {
@@ -428,12 +556,9 @@ export async function run(): Promise<AgentResult> {
           prowJob.status.completionTime,
         );
 
-        // Build test_failures from description when the job failed
-        const testFailures =
-          status === 'failure'
-            ? extractTestFailuresFromDescription(prowJob.status.description)
-            : [];
-
+        // Prow has no JUnit — real suite data comes from GCS build-log.txt (prow_suites).
+        // test_failures stays empty; pass/fail counts are derived from suites after GCS fetch.
+        const testFailures: never[] = [];
         const failCount = status === 'failure' ? 1 : 0;
 
         const now = new Date().toISOString();
@@ -441,7 +566,7 @@ export async function run(): Promise<AgentResult> {
 
         // Check if this build already exists (to avoid unnecessary triage re-invocations)
         const existingBuild = getBuildIdStmt.get(externalId, jobName) as
-          | { id: string; failure_class: string | null; failure_reason: string | null; is_infra: number }
+          | { id: string; failure_class: string | null; failure_reason: string | null; is_infra: number; prow_suites: string | null; parameters: string | null }
           | undefined;
         const isNew = !existingBuild;
 
@@ -482,9 +607,42 @@ export async function run(): Promise<AgentResult> {
         // it clobber a prior GCS-confirmed infra label -- we fall back to the
         // don't-downgrade upsert in that case.
         let gcsAuthoritative = false;
+        // Enriched parameters and suites — populated when GCS fetch succeeds.
+        let prowSuitesJson: string | null = null;
+        let parametersJson = JSON.stringify({
+          prow_job_type: prowJob.spec.type,
+          cluster: prowJob.spec.cluster || null,
+          refs: prowJob.spec.refs || null,
+        });
 
         if (status !== 'failure' && status !== 'aborted' && status !== 'unstable') {
           classification = { failure_class: null, failure_reason: null, is_infra: 0 };
+          // Still want GCS metadata for passing builds (suites, release, etc.)
+          const existingParams = (() => { try { return existingBuild?.parameters ? JSON.parse(existingBuild.parameters) : null; } catch { return null; } })();
+          const wantGcs = isNew || !existingBuild?.prow_suites || !existingParams?.release;
+          if (wantGcs && gcsEnrichCount < MAX_GCS_ENRICH_PER_RUN) {
+            gcsEnrichCount += 1;
+            const artifacts = await fetchProwArtifacts(
+              prowJob.status.url,
+              jobName,
+              externalId,
+            );
+            if (artifacts.suites.length > 0) prowSuitesJson = JSON.stringify(artifacts.suites);
+            if (artifacts.prowJobMeta) {
+              parametersJson = JSON.stringify({
+                prow_job_type: prowJob.spec.type,
+                cluster: prowJob.spec.cluster || null,
+                refs: prowJob.spec.refs || null,
+                release: artifacts.prowJobMeta.release,
+                cloud: artifacts.prowJobMeta.cloud,
+                profile: artifacts.prowJobMeta.profile,
+                target: artifacts.prowJobMeta.target,
+                name_prefix: artifacts.prowJobMeta.namePrefix,
+                ocp_version: artifacts.prowJobMeta.ocpVersion,
+                channel: artifacts.prowJobMeta.channel,
+              });
+            }
+          }
         } else {
           // Fetch GCS when new OR when the stored classification is not
           // trustworthy (unconfident or a possibly-stale infra label).
@@ -516,6 +674,21 @@ export async function run(): Promise<AgentResult> {
             if (artifacts.description) gcsDescription = artifacts.description;
             if (artifacts.reason)      gcsReason = artifacts.reason;
             gcsTestsPassed = artifacts.testsPassed;
+            if (artifacts.suites.length > 0) prowSuitesJson = JSON.stringify(artifacts.suites);
+            if (artifacts.prowJobMeta) {
+              parametersJson = JSON.stringify({
+                prow_job_type: prowJob.spec.type,
+                cluster: prowJob.spec.cluster || null,
+                refs: prowJob.spec.refs || null,
+                release: artifacts.prowJobMeta.release,
+                cloud: artifacts.prowJobMeta.cloud,
+                profile: artifacts.prowJobMeta.profile,
+                target: artifacts.prowJobMeta.target,
+                name_prefix: artifacts.prowJobMeta.namePrefix,
+                ocp_version: artifacts.prowJobMeta.ocpVersion,
+                channel: artifacts.prowJobMeta.channel,
+              });
+            }
             // Only treat this classification as authoritative if GCS actually
             // returned something. An all-null result means the fetch failed
             // (GCS unreachable / timeouts) and we learned nothing beyond the
@@ -548,24 +721,26 @@ export async function run(): Promise<AgentResult> {
           jobName,
           prowJob.status.url || null,
           status,
-          status === 'success' ? 1 : 0,
-          failCount,
+          // Use real suite counts when available, otherwise 1/0 from overall status
+          prowSuitesJson
+            ? JSON.parse(prowSuitesJson).filter((s: { status: string }) => s.status === 'PASSED').length
+            : (status === 'success' ? 1 : 0),
+          prowSuitesJson
+            ? JSON.parse(prowSuitesJson).filter((s: { status: string }) => s.status !== 'PASSED').length
+            : failCount,
           0,
-          1,
+          prowSuitesJson ? JSON.parse(prowSuitesJson).length : 1,
           durationMs,
           prowJob.status.startTime || null,
           prowJob.status.completionTime || null,
           ocpVersion,
-          JSON.stringify({
-            prow_job_type: prowJob.spec.type,
-            cluster: prowJob.spec.cluster || null,
-            refs: prowJob.spec.refs || null,
-          }),
+          parametersJson,
           JSON.stringify(testFailures),
           JSON.stringify(prowJob),
           classification.failure_class,
           classification.failure_reason,
           classification.is_infra,
+          prowSuitesJson,
           now,
           now,
         );

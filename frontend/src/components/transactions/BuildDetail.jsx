@@ -24,6 +24,69 @@ function formatDuration(ms) {
   return `${minutes}m`
 }
 
+function parseProwSuites(build) {
+  if (build.source !== 'prow') return []
+  try {
+    const raw = typeof build.prow_suites === 'string'
+      ? JSON.parse(build.prow_suites || '[]')
+      : build.prow_suites || []
+    return Array.isArray(raw) ? raw : []
+  } catch {
+    return []
+  }
+}
+
+function buildSummary(build) {
+  const lines = []
+  const isInfra = build.is_infra === 1 || build.is_infra === '1'
+
+  if (isInfra) {
+    const label = build.failure_class?.replace(/^infra_/, '') || 'infra'
+    lines.push(`CI infrastructure failure (${label}).`)
+    if (build.failure_reason) lines.push(build.failure_reason)
+    return lines.join(' ')
+  }
+
+  if (build.status === 'success') {
+    const dur = build.duration_ms ? ` in ${formatDuration(build.duration_ms)}` : ''
+    return `Build passed${dur}.`
+  }
+
+  if (build.status === 'aborted') return 'Build was aborted before completion.'
+
+  // Prow: use parsed suites when available
+  const prowSuites = parseProwSuites(build)
+  if (prowSuites.length > 0) {
+    const passed = prowSuites.filter(s => s.status === 'PASSED').length
+    const failed = prowSuites.filter(s => s.status === 'FAILED')
+    const partial = prowSuites.filter(s => s.status === 'PARTIAL')
+    lines.push(`${passed} of ${prowSuites.length} suites passed.`)
+    if (failed.length > 0) lines.push(`Failed: ${failed.map(s => s.name).join(', ')}.`)
+    if (partial.length > 0) lines.push(`Partial: ${partial.map(s => s.name).join(', ')}.`)
+    if (build.failure_reason) lines.push(build.failure_reason)
+    return lines.join(' ')
+  }
+
+  // Jenkins / prow without suites: use test counts + failure reason
+  const pass = build.pass_count || 0
+  const fail = build.fail_count || 0
+  const total = pass + fail + (build.skip_count || 0)
+  if (total > 0) {
+    lines.push(`${pass} of ${total} tests passed.`)
+  }
+
+  const testFailures = build.test_failures || []
+  if (testFailures.length > 0) {
+    const names = testFailures.slice(0, 3).map(f => f.name).filter(Boolean)
+    if (names.length > 0) lines.push(`Failures: ${names.join(', ')}${testFailures.length > 3 ? ` +${testFailures.length - 3} more` : ''}.`)
+  }
+
+  if (build.failure_reason) lines.push(build.failure_reason)
+  if (lines.length === 0 && build.status === 'failure') lines.push('Build failed.')
+
+  return lines.join(' ') || null
+}
+
 export function BuildDetail({ build, open, onOpenChange }) {
   const [linkedTicket, setLinkedTicket] = useState(null)
   const [logExcerpt, setLogExcerpt] = useState(null)
@@ -88,6 +151,8 @@ export function BuildDetail({ build, open, onOpenChange }) {
   const totalTests = pass + fail + skip
   const passRate = totalTests > 0 ? Math.round((pass / totalTests) * 100) : 0
   const testFailures = build.test_failures || []
+  const prowSuites = parseProwSuites(build)
+  const summary = buildSummary(build)
 
   const logLines = logExcerpt
     ? logExcerpt.split('\n').slice(0, 30).join('\n')
@@ -142,6 +207,16 @@ export function BuildDetail({ build, open, onOpenChange }) {
                   )}
                 </div>
               )}
+              {/* Build summary — derived locally from structured fields, no API */}
+              {summary && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 space-y-1">
+                  <Label className="text-xs text-blue-700 uppercase tracking-wide font-semibold">
+                    Summary
+                  </Label>
+                  <p className="text-xs text-blue-900 leading-relaxed">{summary}</p>
+                </div>
+              )}
+
               {/* 2. Test summary */}
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">
@@ -178,6 +253,36 @@ export function BuildDetail({ build, open, onOpenChange }) {
                   {passRate}% pass rate ({totalTests} total)
                 </span>
               </div>
+
+              {/* Prow suites — only shown when prow_suites data is available */}
+              {prowSuites.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Test Suites ({prowSuites.length})
+                    </Label>
+                    <div className="space-y-1">
+                      {prowSuites.map((suite, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                          <span className={`font-mono truncate flex-1 mr-2 ${
+                            suite.status === 'FAILED' ? 'text-red-600 font-semibold' :
+                            suite.status === 'PARTIAL' ? 'text-amber-600 font-medium' :
+                            'text-muted-foreground'
+                          }`}>
+                            {suite.status === 'PASSED' ? '✓' : suite.status === 'FAILED' ? '✗' : '~'} {suite.name}
+                          </span>
+                          {suite.duration_s != null && (
+                            <span className="text-muted-foreground font-mono shrink-0">
+                              {formatDuration(suite.duration_s * 1000)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               <Separator />
 
