@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react'
 import {
   useLegacyTable as useReactTable,
   getCoreRowModel,
@@ -13,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { FilterSelect } from '@/components/shared/FilterSelect'
 import {
   Pagination,
@@ -29,70 +29,146 @@ import { DateRangeFilter } from '@/components/shared/DateRangeFilter'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { formatRelative, formatAbsolute } from '@/lib/utils'
 
-/**
- * Short labels for failure classes that carry no `infra_` prefix to strip.
- * The classifier spells these out in full ("cleanup_verification_failure"),
- * which is wider than the whole Reason column -- the badge ran over the Tests
- * digits in the next column. The full value stays in the badge's tooltip.
- */
+// Shared chip base — uniform height, radius, padding across all chip types
+const CHIP = 'inline-flex items-center gap-1.5 h-[22px] rounded-md border px-2 text-[11.5px] font-mono leading-none whitespace-nowrap shrink-0'
+
+// ─── Feature group ────────────────────────────────────────────────────────────
+
+const FEATURE_GROUP_FEATURES = {
+  'day1-basic':      ['domain_prefix', 'availability_zones', 'additional_tags', 'channel_group', 'default_autoscaling'],
+  'day1-combo':      ['cluster_autoscaler_expander', 'image_registry', 'parallel_upgrade', 'disk_size'],
+  'day1-security':   ['etcd_kms', 'fips', 'security_groups'],
+  'day1-networking': ['no_cni', 'private_network', 'external_oidc', 'audit_logging'],
+}
+
+const FEATURE_LABELS = {
+  domain_prefix:               'domain',
+  availability_zones:          'azs',
+  additional_tags:             'tags',
+  channel_group:               'channel',
+  default_autoscaling:         'autoscaling',
+  cluster_autoscaler_expander: 'autoscaler',
+  image_registry:              'img-registry',
+  parallel_upgrade:            'parallel-upg',
+  disk_size:                   'disk-size',
+  etcd_kms:                    'etcd-kms',
+  fips:                        'fips',
+  security_groups:             'sec-groups',
+  no_cni:                      'no-cni',
+  private_network:             'private',
+  external_oidc:               'ext-oidc',
+  audit_logging:               'audit-log',
+}
+
+function FeatureGroupChips({ group }) {
+  const features = FEATURE_GROUP_FEATURES[group]
+  if (!features) return null
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <span className={`${CHIP} border-violet-600 bg-violet-600 text-white font-semibold`}>
+        {group}
+      </span>
+      {features.map((f) => (
+        <span
+          key={f}
+          title={f}
+          className={`${CHIP} border-violet-200 bg-violet-50 text-violet-700`}
+        >
+          {FEATURE_LABELS[f] ?? f}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// ─── Param chips ─────────────────────────────────────────────────────────────
+
+function ParamChip({ raw }) {
+  const i = raw.indexOf(':')
+  const k = i === -1 ? raw : raw.slice(0, i)
+  const v = i === -1 ? '' : raw.slice(i + 1)
+  return (
+    <span className={`${CHIP} border-slate-200 bg-slate-50 text-slate-600`} title={raw}>
+      <span className="text-slate-400">{k}</span>
+      <span className="max-w-[7rem] truncate font-semibold tabular-nums text-slate-700">{v}</span>
+    </span>
+  )
+}
+
+// ─── Step chips ──────────────────────────────────────────────────────────────
+
+const STEP_TONE = {
+  PASSED:  'border-emerald-200 bg-emerald-50 text-emerald-700',
+  FAILED:  'border-red-300 bg-red-50 text-red-700 font-semibold',
+  PARTIAL: 'border-amber-200 bg-amber-50 text-amber-700',
+}
+const STEP_DOT = {
+  PASSED:  'bg-emerald-500',
+  FAILED:  'bg-red-500',
+  PARTIAL: 'bg-amber-400',
+}
+const STEP_LABELS = {
+  'Configure MCE Environment':          'Configure MCE',
+  'CAPA Cluster Provisioning':          'Provision',
+  'Verify Feature Flags':               'Verify Features',
+  'Add ROSAMachinePool':                'MachinePool',
+  'Delete ROSAMachinePool':             'Delete Pool',
+  'CAPA Cluster Deletion':              'Delete',
+  'Install CAPI Standalone':            'CAPI Standalone',
+  'Disable CAPI/CAPA, Enable Hypershift': 'Enable Hypershift',
+  'Upgrade ROSA HCP Control Plane':     'Upgrade CP',
+  'Upgrade ROSA HCP Machine Pool':      'Upgrade Pool',
+}
+function stepLabel(name) {
+  if (Object.hasOwn(STEP_LABELS, name)) return STEP_LABELS[name]
+  return name.replace(/^(Install |CAPA |ROSA HCP |Upgrade ROSA HCP |Add |Delete )/, '')
+}
+
+// ─── Infra badge ─────────────────────────────────────────────────────────────
+
 const INFRA_CLASS_LABELS = {
   cleanup_verification_failure: 'cleanup',
 }
 
-/**
- * Map a failure_class value to a short human label for the infra badge.
- * infra_lease -> "lease", infra_auth -> "auth", etc.
- */
 function infraClassLabel(failureClass) {
   if (!failureClass) return 'infra'
-  // hasOwn, not a bare lookup: failure_class is writable through the PATCH
-  // API, and a value like "constructor" or "toString" would otherwise resolve
-  // up the prototype chain and hand a *function* back as the label for React
-  // to render.
-  if (Object.hasOwn(INFRA_CLASS_LABELS, failureClass)) {
-    return INFRA_CLASS_LABELS[failureClass]
-  }
+  if (Object.hasOwn(INFRA_CLASS_LABELS, failureClass)) return INFRA_CLASS_LABELS[failureClass]
   if (failureClass.startsWith('infra_')) return failureClass.slice(6)
-  return failureClass // e.g. "aborted"
+  return failureClass
 }
 
-/**
- * Badge shown on infra/harness failure builds.
- * Uses amber styling to distinguish from red "Failed" status.
- */
-function InfraBadge({ failureClass, failureReason, title }) {
+function InfraBadge({ failureClass, failureReason }) {
   const label = infraClassLabel(failureClass)
-  // The label is abbreviated, so keep the raw class discoverable on hover.
-  const displayTitle =
-    title || [failureClass, failureReason].filter(Boolean).join(' — ') || undefined
+  const displayTitle = [failureClass, failureReason].filter(Boolean).join(' — ') || undefined
   return (
-    <Badge
-      variant="outline"
-      // max-w-full/truncate override the base badge's `w-fit shrink-0`, which
-      // sizes to content and refuses to shrink. Without them an unmapped long
-      // class spills out of the cell and over the next column instead of
-      // clipping. Belt-and-braces behind INFRA_CLASS_LABELS above.
-      className="bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-50 font-mono text-[11px] max-w-full truncate"
+    <span
+      className="inline-flex items-center gap-1.5 max-w-full truncate rounded-full bg-amber-50 px-2 py-[3px] text-[10px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-600/30"
       title={displayTitle}
     >
       infra:{label}
-    </Badge>
+    </span>
   )
 }
+
+// ─── Row left border ─────────────────────────────────────────────────────────
 
 function statusBorderClass(status) {
   switch (status) {
     case 'failure':
     case 'failed':
-      return 'border-l-4 border-l-red-500'
+      return 'border-l-[3px] border-l-red-500'
     case 'passed':
     case 'success':
-      return 'border-l-4 border-l-green-500'
+      return 'border-l-[3px] border-l-emerald-500'
     case 'pending':
     case 'running':
-      return 'border-l-4 border-l-yellow-500'
+      return 'border-l-[3px] border-l-blue-400'
+    case 'aborted':
+      return 'border-l-[3px] border-l-amber-400'
+    case 'unstable':
+      return 'border-l-[3px] border-l-amber-500'
     default:
-      return 'border-l-4 border-l-muted'
+      return 'border-l-[3px] border-l-border'
   }
 }
 
@@ -118,26 +194,19 @@ export function BuildHistoryTable({
   onFiltersChange,
   onPageChange,
 }) {
-  const [expandedIds, setExpandedIds] = useState(new Set())
-  // `size` below is a RELATIVE WEIGHT, not a pixel width. The header render
-  // divides each one by the table's total to emit a percentage, so the columns
-  // always sum to 100% and share any surplus width in proportion. Fixed pixel
-  // widths pooled all the leftover space into whichever column absorbed it,
-  // leaving a blank gap mid-row on wide screens.
+
   const columns = useMemo(
     () => [
       {
-        // Job, build, repo and params all identify the same run, so they share
-        // one stacked column. Splitting them across four columns spent width on
-        // repeated separators and left every field cramped.
         accessorKey: 'job_name',
         header: 'Job / Build',
         cell: ({ row }) => {
           const fullName = row.getValue('job_name') || ''
           const externalId = row.original.external_id
           const jobUrl = row.original.job_url
-          const repo = extractRepo(row.original.job_name, row.original.source)
-          const paramChips = buildParamChips(row.original).join(' • ')
+          const src = row.original.source
+          const { identity, extra, featureGroup } = buildParamChips(row.original)
+          const allParams = [...identity, ...extra]
           const prowSuites = (() => {
             try {
               const raw = typeof row.original.prow_suites === 'string'
@@ -147,13 +216,10 @@ export function BuildHistoryTable({
             } catch { return [] }
           })()
 
-          // Jenkins job names are short ("capi_tests") with a 3-digit build, so
-          // they fit on one line together. Prow pairs a very long generated job
-          // name with a 19-digit build id and needs its own line for each.
-          const inline = row.original.source === 'jenkins'
+          const inline = src === 'jenkins'
 
           const jobName = (
-            <span className="text-sm font-mono truncate" title={fullName}>
+            <span className="truncate text-[13.5px] font-semibold font-mono tracking-tight text-foreground" title={fullName}>
               {fullName}
             </span>
           )
@@ -162,149 +228,107 @@ export function BuildHistoryTable({
               href={jobUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-primary hover:underline font-mono text-xs font-medium w-fit shrink-0"
+              className={inline
+                ? 'shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-primary hover:bg-primary/10 hover:underline'
+                : 'font-mono text-[11px] tabular-nums text-muted-foreground/70 hover:text-primary hover:underline truncate'
+              }
               onClick={(e) => e.stopPropagation()}
             >
               #{externalId}
             </a>
           ) : (
-            <span className="font-mono text-xs font-medium shrink-0">#{externalId}</span>
+            <span className={inline
+              ? 'shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-foreground/70'
+              : 'font-mono text-[11px] tabular-nums text-muted-foreground/70 truncate'
+            }>
+              #{externalId}
+            </span>
           )
 
+          const passedCount = prowSuites.filter(s => s.status === 'PASSED').length
+
           return (
-            <div className="flex flex-col gap-0.5">
-              {inline ? (
-                <span className="flex items-baseline gap-2 min-w-0">
-                  {jobName}
-                  {buildRef}
+            <div className="flex min-h-[44px] flex-col gap-1.5">
+              {/* Title row: source prefix + job name + build ref */}
+              <span className="flex items-center gap-2 min-w-0">
+                <span className={`text-[10px] font-semibold uppercase tracking-wider shrink-0 ${src === 'jenkins' ? 'text-sky-500' : src === 'prow' ? 'text-indigo-500' : 'text-muted-foreground/60'}`}>
+                  {src}
                 </span>
-              ) : (
-                <>
-                  {jobName}
-                  {buildRef}
-                </>
-              )}
-              {repo && (
-                <span
-                  className="text-xs text-muted-foreground font-mono truncate"
-                  title={repo}
-                >
-                  {repo}
-                </span>
-              )}
-              {paramChips && (
-                <span
-                  className="text-xs text-muted-foreground font-mono truncate"
-                  title={paramChips}
-                >
-                  {paramChips}
-                </span>
-              )}
-              {prowSuites.length > 0 && (
-                <span className="flex items-center gap-1 flex-wrap">
-                  {prowSuites.map((s, i) => (
-                    <span
-                      key={i}
-                      title={`${s.name}${s.duration_s != null ? ` — ${Math.round(s.duration_s / 60)}m` : ''}`}
-                      className={`text-[10px] font-mono px-1 rounded ${
-                        s.status === 'PASSED' ? 'text-emerald-700 bg-emerald-50' :
-                        s.status === 'FAILED' ? 'text-red-700 bg-red-50' :
-                        'text-amber-700 bg-amber-50'
-                      }`}
-                    >
-                      {s.status === 'PASSED' ? '✓' : s.status === 'FAILED' ? '✗' : '~'}{' '}
-                      {s.name.replace(/^(Install |CAPA |ROSA HCP |Upgrade ROSA HCP |Add |Delete )/, '').slice(0, 14)}
-                    </span>
-                  ))}
-                </span>
+                {jobName}
+                {buildRef}
+              </span>
+
+              {/* Sub-lines in a guide-rail */}
+              {(allParams.length > 0 || featureGroup || prowSuites.length > 0) && (
+                <div className="ml-0.5 flex flex-col gap-2 border-l border-dashed border-border pl-2.5">
+                  {/* Param chips */}
+                  {allParams.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 shrink-0">Params</span>
+                      {allParams.map((p, i) => <ParamChip key={i} raw={p} />)}
+                    </div>
+                  )}
+
+                  {/* Feature group */}
+                  {featureGroup && <FeatureGroupChips group={featureGroup} />}
+
+                  {/* Steps — capped at 6 */}
+                  {prowSuites.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 shrink-0">Stages</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground shrink-0">
+                        {passedCount}/{prowSuites.length}
+                      </span>
+                      {prowSuites.map((s, i) => (
+                        <span
+                          key={i}
+                          title={`${s.name}${s.duration_s != null ? ` — ${Math.round(s.duration_s / 60)}m` : ''}`}
+                          className={`${CHIP} ${STEP_TONE[s.status] ?? STEP_TONE.PARTIAL}`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${STEP_DOT[s.status] ?? STEP_DOT.PARTIAL}`} />
+                          <span className="max-w-[8rem] truncate">{stepLabel(s.name)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )
         },
-        // Roughly 38% of the table -- it carries four stacked lines including
-        // the longest content on the row (a Prow job name), so it earns the
-        // largest share. See the `size` note above the column list.
-        size: 400,
-        meta: { cellClassName: 'whitespace-nowrap' },
+        size: 430,
+        meta: { cellClassName: 'align-top' },
       },
       {
-        accessorKey: 'source',
-        header: 'Source',
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground capitalize">
-            {row.getValue('source')}
-          </span>
-        ),
-        size: 100,
-      },
-      {
-        accessorKey: 'status',
+        id: 'status',
         header: 'Status',
-        cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
-        size: 105,
-      },
-      {
-        id: 'class',
-        header: 'Reason',
         enableSorting: false,
+        meta: { cellClassName: 'align-top' },
         cell: ({ row }) => {
+          const status = row.original.status
           const isInfra = row.original.is_infra === 1 || row.original.is_infra === '1'
           const failureClass = row.original.failure_class
           const failureReason = row.original.failure_reason
-
-          // Show badge for infra failures or cleanup verification failures
-          if (isInfra || failureClass === 'cleanup_verification_failure') {
-            return (
-              <InfraBadge
-                failureClass={failureClass}
-                failureReason={failureReason}
-              />
-            )
-          }
-          return null
-        },
-        // Widest of the metric columns: the badge text is a failure class
-        // ("infra:teardown", "infra:provision"), not a fixed-width value.
-        size: 130,
-      },
-      {
-        id: 'tests',
-        header: 'Tests',
-        enableSorting: false,
-        cell: ({ row }) => {
-          const pass = row.original.pass_count
-          const fail = row.original.fail_count
-          const skip = row.original.skip_count
+          const showInfra = isInfra || failureClass === 'cleanup_verification_failure'
           return (
-            <span className="text-sm font-mono whitespace-nowrap">
-              <span className={pass > 0 ? 'text-emerald-600' : 'text-muted-foreground'}>
-                {pass ?? '--'}
-              </span>
-              <span className="text-muted-foreground"> / </span>
-              <span
-                className={
-                  fail > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'
-                }
-              >
-                {fail ?? '--'}
-              </span>
-              <span className="text-muted-foreground"> / </span>
-              <span className="text-muted-foreground">{skip ?? '--'}</span>
-            </span>
+            <div className="flex flex-col items-start gap-1.5">
+              <StatusBadge status={status} />
+              {showInfra && <InfraBadge failureClass={failureClass} failureReason={failureReason} />}
+            </div>
           )
         },
-        size: 100,
+        size: 120,
       },
       {
-        accessorKey: 'started_at',
+        id: 'timing',
         header: 'Started',
-        // Weight nudged up over Tests/Duration to cover the sort caret that the
-        // header adds ("Started ▼") -- it is the default sort column.
+        accessorKey: 'started_at',
+        meta: { cellClassName: 'align-top text-right' },
         cell: ({ row }) => {
-          const started = row.getValue('started_at')
+          const started = row.original.started_at
           return (
             <span
-              className="text-xs text-muted-foreground whitespace-nowrap"
+              className="text-[13px] tabular-nums text-muted-foreground whitespace-nowrap"
               title={formatAbsolute(started)}
             >
               {formatRelative(started)}
@@ -314,22 +338,25 @@ export function BuildHistoryTable({
         size: 110,
       },
       {
-        accessorKey: 'duration_ms',
+        id: 'duration',
         header: 'Duration',
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground font-mono">
-            {formatDuration(row.getValue('duration_ms'))}
-          </span>
-        ),
-        size: 110,
+        accessorKey: 'duration_ms',
+        meta: { cellClassName: 'align-top text-right' },
+        cell: ({ row }) => {
+          const ms = row.original.duration_ms
+          return (
+            <span className="font-mono text-[13px] font-medium tabular-nums text-foreground whitespace-nowrap">
+              {formatDuration(ms)}
+            </span>
+          )
+        },
+        size: 90,
       },
     ],
     []
   )
 
-  const [sorting, setSorting] = useState([
-    { id: 'started_at', desc: true },
-  ])
+  const [sorting, setSorting] = useState([{ id: 'started_at', desc: true }])
 
   const table = useReactTable({
     data: builds || [],
@@ -337,13 +364,10 @@ export function BuildHistoryTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     onSortingChange: setSorting,
-    state: {
-      sorting,
-    },
+    state: { sorting },
     getRowId: (row) => row.id,
   })
 
-  // Denominator that turns each column's `size` weight into a percentage.
   const totalWidth = table.getTotalSize()
 
   return (
@@ -351,25 +375,25 @@ export function BuildHistoryTable({
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <FilterSelect
-          value={filters.job || 'all'}
-          onValueChange={(v) => onFiltersChange({ ...filters, job: v })}
-          options={[{ value: 'all', label: 'All Jobs' }]}
-          className="w-48 h-8"
+          value={filters.source || 'all'}
+          onValueChange={(v) => onFiltersChange({ ...filters, source: v })}
+          options={[
+            { value: 'all', label: 'All Jobs' },
+            { value: 'jenkins', label: 'Jenkins' },
+            { value: 'prow', label: 'Prow' },
+          ]}
+          className="w-40 h-8"
         />
-
         <FilterSelect
           value={filters.status || 'all'}
           onValueChange={(v) => onFiltersChange({ ...filters, status: v })}
           options={statusOptions}
           className="w-36 h-8"
         />
-
         <DateRangeFilter
           value={filters.dateRange || '7d'}
           onChange={(v) => onFiltersChange({ ...filters, dateRange: v })}
         />
-
-        {/* Hide infra failures toggle */}
         <label className="flex items-center gap-1.5 cursor-pointer select-none ml-auto">
           <span className="relative inline-flex h-5 w-9 shrink-0">
             <input
@@ -381,20 +405,12 @@ export function BuildHistoryTable({
             <span className="absolute inset-0 rounded-full bg-muted transition-colors peer-checked:bg-amber-500" />
             <span className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
           </span>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            Hide infra failures
-          </span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Hide infra failures</span>
         </label>
       </div>
 
       {/* Table */}
-      <div className="rounded-md border border-border">
-        {/*
-          table-fixed, not auto: under auto layout the browser reads the column
-          widths as hints and re-derives them from cell content, so a single
-          long Prow job name could blow one column out and squeeze the rest.
-          Fixed layout honours the percentages exactly.
-        */}
+      <div className="rounded-lg border border-border overflow-hidden shadow-sm">
         <Table className="table-fixed">
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -402,31 +418,25 @@ export function BuildHistoryTable({
                 {headerGroup.headers.map((header) => {
                   const canSort = header.column.getCanSort()
                   const sorted = header.column.getIsSorted()
+                  const alignRight = ['timing', 'duration'].includes(header.column.id)
                   return (
                     <TableHead
                       key={header.id}
-                      style={{
-                        width: `${(header.getSize() / totalWidth) * 100}%`,
-                      }}
-                      className={`h-9 text-xs group${canSort ? ' cursor-pointer select-none hover:bg-muted/50' : ''}`}
+                      style={{ width: `${(header.getSize() / totalWidth) * 100}%` }}
+                      className={`h-10 sticky top-0 z-10 bg-muted border-b border-border text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80 group${alignRight ? ' text-right' : ''}${canSort ? ' cursor-pointer select-none hover:bg-muted/70 transition-colors' : ''}`}
                       onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                     >
                       {header.isPlaceholder ? null : (
-                        <span className="inline-flex items-center gap-1">
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
+                        <span className={`inline-flex items-center gap-1${alignRight ? ' justify-end w-full' : ''}`}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
                           {canSort && (
-                            <span className="text-muted-foreground">
-                              {sorted === 'asc' ? (
-                                <span className="text-foreground">{'▲'}</span>
-                              ) : sorted === 'desc' ? (
-                                <span className="text-foreground">{'▼'}</span>
-                              ) : (
-                                <span className="opacity-0 group-hover:opacity-100 transition-opacity">{'↕'}</span>
-                              )}
-                            </span>
+                            sorted === 'asc' ? (
+                              <ArrowUp className="size-3 text-foreground" />
+                            ) : sorted === 'desc' ? (
+                              <ArrowDown className="size-3 text-foreground" />
+                            ) : (
+                              <ChevronsUpDown className="size-3 opacity-0 transition-opacity group-hover:opacity-60" />
+                            )
                           )}
                         </span>
                       )}
@@ -440,8 +450,15 @@ export function BuildHistoryTable({
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={`skeleton-${i}`}>
-                  {columns.map((col, j) => (
-                    <TableCell key={j}>
+                  <TableCell className="py-3">
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-3.5 w-[70%]" />
+                      <Skeleton className="h-3 w-[85%]" />
+                      <Skeleton className="h-3 w-[55%]" />
+                    </div>
+                  </TableCell>
+                  {columns.slice(1).map((col, j) => (
+                    <TableCell key={j} className="py-3">
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
                   ))}
@@ -454,114 +471,31 @@ export function BuildHistoryTable({
                     title="No builds found"
                     description="No builds match your current filters."
                     actionLabel="Clear filters"
-                    onAction={() =>
-                      onFiltersChange({
-                        job: 'all',
-                        status: 'all',
-                        dateRange: '7d',
-                      })
-                    }
+                    onAction={() => onFiltersChange({ job: 'all', source: 'all', status: 'all', dateRange: '7d' })}
                   />
                 </TableCell>
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => {
                 const isFailed = row.original.status === 'failure'
-                const isExpanded = expandedIds.has(row.original.id)
-                const build = row.original
-
-                // Parse suites for expanded view
-                const suites = (() => {
-                  try {
-                    const raw = typeof build.prow_suites === 'string'
-                      ? JSON.parse(build.prow_suites || '[]')
-                      : build.prow_suites || []
-                    return Array.isArray(raw) ? raw : []
-                  } catch { return [] }
-                })()
-
-                // Build summary text
-                const summaryText = (() => {
-                  if (build.status === 'success') return `Build passed in ${build.duration_ms ? formatDuration(build.duration_ms) : '--'}.`
-                  if (build.status === 'aborted') return 'Build was aborted before completion.'
-                  const isInfra = build.is_infra === 1 || build.is_infra === '1'
-                  if (isInfra) {
-                    const label = build.failure_class?.replace(/^infra_/, '') || 'infra'
-                    return [`CI infrastructure failure (${label}).`, build.failure_reason].filter(Boolean).join(' ')
-                  }
-                  if (suites.length > 0) {
-                    const passed = suites.filter(s => s.status === 'PASSED').length
-                    const failed = suites.filter(s => s.status === 'FAILED').map(s => s.name)
-                    const partial = suites.filter(s => s.status === 'PARTIAL').map(s => s.name)
-                    const parts = [`${passed} of ${suites.length} suites passed.`]
-                    if (failed.length > 0) parts.push(`Failed: ${failed.join(', ')}.`)
-                    if (partial.length > 0) parts.push(`Partial: ${partial.join(', ')}.`)
-                    if (build.failure_reason) parts.push(build.failure_reason)
-                    return parts.join(' ')
-                  }
-                  const testFailures = build.test_failures || []
-                  const parts = []
-                  const pass = build.pass_count || 0
-                  const fail = build.fail_count || 0
-                  const total = pass + fail + (build.skip_count || 0)
-                  if (total > 0 && testFailures.length > 0) parts.push(`${pass} of ${total} tests passed.`)
-                  if (testFailures.length > 0) {
-                    const names = testFailures.slice(0, 3).map(f => f.name).filter(Boolean)
-                    if (names.length) parts.push(`Failures: ${names.join(', ')}${testFailures.length > 3 ? ` +${testFailures.length - 3} more` : ''}.`)
-                  }
-                  if (build.failure_reason) parts.push(build.failure_reason)
-                  if (parts.length === 0 && build.status === 'failure') parts.push('Build failed.')
-                  return parts.join(' ') || null
-                })()
-
-                const colCount = row.getVisibleCells().length
-
                 return (
-                  <>
-                    <TableRow
-                      key={row.id}
-                      className={`cursor-pointer hover:bg-muted/50 ${statusBorderClass(build.status)} ${isFailed ? 'font-medium' : ''} ${isExpanded ? 'bg-muted/30' : ''}`}
-                      onClick={() => setExpandedIds(prev => {
-                      const next = new Set(prev)
-                      isExpanded ? next.delete(build.id) : next.add(build.id)
-                      return next
-                    })}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
-                        return (
-                          <TableCell key={cell.id} className={`py-2 ${cellClassName}`}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        )
-                      })}
-                    </TableRow>
-                    {isExpanded && (
-                      <TableRow key={`${row.id}-expanded`} className="bg-muted/20 hover:bg-muted/20">
-                        <TableCell colSpan={colCount} className="py-3 px-6">
-                          <div className="flex flex-col gap-3">
-                            {summaryText && (
-                              <p className="text-xs text-muted-foreground">{summaryText}</p>
-                            )}
-                            {suites.length > 0 && (
-                              <div className="grid grid-cols-2 gap-x-8 gap-y-1">
-                                {suites.map((s, i) => (
-                                  <div key={i} className="flex items-center justify-between text-xs font-mono">
-                                    <span className={`${s.status === 'FAILED' ? 'text-red-600 font-semibold' : s.status === 'PARTIAL' ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                                      {s.status === 'PASSED' ? '✓' : s.status === 'FAILED' ? '✗' : '~'} {s.name}
-                                    </span>
-                                    <span className="text-muted-foreground ml-4 shrink-0">
-                                      {s.duration_s != null ? formatDuration(s.duration_s * 1000) : ''}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                  <TableRow
+                    key={row.id}
+                    className={`transition-colors border-b border-border/70 ${statusBorderClass(row.original.status)} ${
+                      isFailed
+                        ? 'bg-red-50/30 hover:bg-red-50/60'
+                        : 'odd:bg-muted/[0.18] hover:bg-muted/40'
+                    }`}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const cellClassName = cell.column.columnDef.meta?.cellClassName || ''
+                      return (
+                        <TableCell key={cell.id} className={`py-4 align-top ${cellClassName}`}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
-                      </TableRow>
-                    )}
-                  </>
+                      )
+                    })}
+                  </TableRow>
                 )
               })
             )}
@@ -615,79 +549,65 @@ export function BuildHistoryTable({
 }
 
 function formatDuration(ms) {
-  if (!ms) return '--'
+  if (!ms || ms < 60000) return ms > 0 ? '<1m' : '—'
   const minutes = Math.floor(ms / 60000)
   const hours = Math.floor(minutes / 60)
   const remainingMins = minutes % 60
-
   if (hours > 0) return `${hours}h ${remainingMins}m`
   return `${minutes}m`
 }
 
-/**
- * Condense a build's Jenkins parameters into short display chips.
- * Returns [] for builds with no recognisable parameters (e.g. Prow rows).
- */
 function buildParamChips(build) {
-  const chips = []
+  let featureGroup = null
   try {
-    // parameters can be either a JSON string or already parsed object
     const params =
       typeof build.parameters === 'string'
         ? JSON.parse(build.parameters || '{}')
         : build.parameters || {}
 
-    // Prow-specific chips — release, profile, target from prowjob.json metadata
     if (build.source === 'prow') {
-      if (params.name_prefix) chips.push(`prefix:${params.name_prefix}`)
-      if (params.channel) chips.push(`channel:${params.channel}`)
-      if (params.ocp_version) chips.push(`ocp:${params.ocp_version}`)
-      else if (params.release) chips.push(`release:${params.release}`)
-      if (params.profile) chips.push(`profile:${params.profile.replace(/^openshift-/, '')}`)
-      if (params.target) chips.push(`target:${params.target}`)
-      return chips
+      const identity = []
+      const extra = []
+      if (params.name_prefix) identity.push(`prefix:${params.name_prefix}`)
+      if (params.channel) extra.push(`channel:${params.channel}`)
+      if (params.ocp_version) extra.push(`ocp:${params.ocp_version}`)
+      else if (params.release) extra.push(`release:${params.release}`)
+      return { identity, extra, featureGroup }
     }
 
-    // Order is fixed: host, then prefix, then everything else. The line is
-    // truncated on narrow screens, so the two chips that identify WHICH run
-    // this was have to be the two that survive.
+    const identity = []
+    const extra = []
+
     if (params.OCP_HUB_API_URL) {
       const hostMatch = params.OCP_HUB_API_URL.match(/api\.([^.]+)\./)
-      if (hostMatch) chips.push(`host:${hostMatch[1]}`)
+      if (hostMatch) identity.push(`host:${hostMatch[1]}`)
     }
-
-    if (params.NAME_PREFIX) chips.push(`prefix:${params.NAME_PREFIX}`)
-    if (params.FEATURE_GROUP) chips.push(`group:${params.FEATURE_GROUP}`)
+    if (params.NAME_PREFIX) identity.push(`prefix:${params.NAME_PREFIX}`)
+    if (params.FEATURE_GROUP) featureGroup = params.FEATURE_GROUP
 
     let requestedVersion = null
     if (params.EXTRA_FEATURE_VARS) {
       const channelMatch = params.EXTRA_FEATURE_VARS.match(/channel_group=(\S+)/)
-      if (channelMatch) chips.push(`channel:${channelMatch[1]}`)
+      if (channelMatch) extra.push(`channel:${channelMatch[1]}`)
       const versionMatch = params.EXTRA_FEATURE_VARS.match(/openshift_version=([^\s]+)/)
       if (versionMatch) {
         requestedVersion = versionMatch[1]
-        chips.push(`ocp:${requestedVersion}`)
+        extra.push(`ocp:${requestedVersion}`)
       }
     }
-
-    // Add the resolved cluster OCP version, but only when it differs from the
-    // requested one — ingest now derives ocp_version from the same
-    // EXTRA_FEATURE_VARS string, so showing both would repeat the value.
-    // When they DO differ the gap is the interesting part.
     if (build.ocp_version && build.ocp_version !== requestedVersion) {
-      chips.push(`version:${build.ocp_version}`)
+      extra.push(`version:${build.ocp_version}`)
     }
+
+    return { identity, extra, featureGroup }
   } catch {
-    // Malformed parameters JSON — show no chips rather than breaking the row.
+    return { identity: [], extra: [], featureGroup }
   }
-  return chips
 }
 
 function extractRepo(jobName, source) {
   if (source === 'prow' && jobName) {
-    if (jobName.includes('openshift-online-rosa-e2e')) {
-      return 'stolostron/rosa-hcp-e2e-test'
-    }
+    if (jobName.includes('openshift-online-rosa-e2e')) return 'stolostron/rosa-hcp-e2e-test'
     const match = jobName.match(/^(?:periodic|pull|batch)-ci-(.+?)-(main|master|release-[\d.]+)/)
     if (match) {
       const parts = match[1].split('-')
@@ -695,38 +615,24 @@ function extractRepo(jobName, source) {
       for (const org of knownOrgs) {
         const orgParts = org.split('-')
         if (parts.slice(0, orgParts.length).join('-') === org) {
-          const repo = parts.slice(orgParts.length).join('-')
-          return `${org}/${repo}`
+          return `${org}/${parts.slice(orgParts.length).join('-')}`
         }
       }
       return `${parts[0]}/${parts.slice(1).join('-')}`
     }
   }
-  if (source === 'jenkins') {
-    return 'stolostron/rosa-hcp-e2e-test'
-  }
+  if (source === 'jenkins') return 'stolostron/rosa-hcp-e2e-test'
   return null
 }
 
-
 function generatePageNumbers(current, total) {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
-
-  const pages = []
-  pages.push(1)
-
+  const pages = [1]
   if (current > 3) pages.push('...')
-
   const start = Math.max(2, current - 1)
   const end = Math.min(total - 1, current + 1)
-
-  for (let i = start; i <= end; i++) {
-    pages.push(i)
-  }
-
+  for (let i = start; i <= end; i++) pages.push(i)
   if (current < total - 2) pages.push('...')
-
   pages.push(total)
-
   return pages
 }

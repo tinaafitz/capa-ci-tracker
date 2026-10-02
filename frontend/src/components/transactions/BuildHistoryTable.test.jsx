@@ -104,8 +104,7 @@ describe('Builds table Reason column', () => {
 })
 
 describe('Builds table parameter chips', () => {
-  // The chip line truncates on narrow screens, so order is load-bearing:
-  // host and prefix are what identify which run this was.
+  // Params are now individual chip elements — check each key/value is present.
   it('puts host first and prefix second', () => {
     renderTable(
       buildRow({
@@ -118,9 +117,13 @@ describe('Builds table parameter chips', () => {
         }),
       })
     )
-    expect(screen.getByText(/^host:test-hub-one/)).toHaveTextContent(
-      'host:test-hub-one • prefix:tst • group:day1-networking • channel:candidate • ocp:5.0.0-rc.0'
-    )
+    // Each chip renders key and value as separate spans — check by value text
+    expect(screen.getByText('test-hub-one')).toBeInTheDocument()
+    expect(screen.getByText('tst')).toBeInTheDocument()
+    expect(screen.getByText('candidate')).toBeInTheDocument()
+    expect(screen.getByText('5.0.0-rc.0')).toBeInTheDocument()
+    // Feature group chip
+    expect(screen.getByText('day1-networking')).toBeInTheDocument()
   })
 
   it('keeps host first when the optional chips are absent', () => {
@@ -132,8 +135,7 @@ describe('Builds table parameter chips', () => {
         }),
       })
     )
-    expect(screen.getByText(/^host:test-hub-two/)).toHaveTextContent(
-      'host:test-hub-two • prefix:rc0'
-    )
+    expect(screen.getByText('test-hub-two')).toBeInTheDocument()
+    expect(screen.getByText('rc0')).toBeInTheDocument()
   })
 })

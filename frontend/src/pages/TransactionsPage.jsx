@@ -12,6 +12,7 @@ export function TransactionsPage() {
   const [searchParams] = useSearchParams()
   const [filters, setFilters] = useState(() => ({
     job: 'all',
+    source: 'all',
     status: searchParams.get('status') || 'all',
     dateRange: '7d',
   }))
