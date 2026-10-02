@@ -1,38 +1,42 @@
-import { Badge } from '@/components/ui/badge'
-
 const statusConfig = {
   success: {
     label: 'Passed',
-    className: 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100',
+    dot: 'bg-emerald-500',
+    className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/25',
   },
   failure: {
     label: 'Failed',
-    className: 'bg-red-100 text-red-800 border-red-200 hover:bg-red-100',
+    dot: 'bg-red-500',
+    className: 'bg-red-50 text-red-700 ring-red-600/30',
   },
   running: {
     label: 'Running',
-    className: 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100 animate-pulse',
+    dot: 'bg-blue-500 animate-pulse',
+    className: 'bg-blue-50 text-blue-700 ring-blue-600/25',
   },
   pending: {
     label: 'Pending',
-    className: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-100',
+    dot: 'bg-slate-400',
+    className: 'bg-slate-50 text-slate-600 ring-slate-400/25',
   },
   aborted: {
     label: 'Aborted',
-    className: 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-100',
+    dot: 'bg-amber-500',
+    className: 'bg-amber-50 text-amber-700 ring-amber-600/25',
   },
   unstable: {
     label: 'Unstable',
-    className: 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100',
+    dot: 'bg-amber-400',
+    className: 'bg-amber-50 text-amber-700 ring-amber-500/25',
   },
 }
 
 export function StatusBadge({ status }) {
-  const config = statusConfig[status] || statusConfig.pending
-
+  const c = statusConfig[status] || statusConfig.pending
   return (
-    <Badge variant="outline" className={config.className}>
-      {config.label}
-    </Badge>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-[3px] text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${c.className}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${c.dot}`} />
+      {c.label}
+    </span>
   )
 }
